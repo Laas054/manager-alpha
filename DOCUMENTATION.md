@@ -1,11 +1,12 @@
 # DOCUMENTATION COMPLETE — MANAGER IA ALPHA
 
-> **Version** : 1.1
+> **Version** : 1.2
 > **Python** : 3.10+
 > **Statut API LLM** : STANDBY
 > **Alpha Interface** : v1.0.0 (AlphaDecision)
-> **Tests** : 170 unitaires + 59 stress-test = TOUS PASS
-> **Reference IA** : `REFERENCE_IA.md` (519 lignes, version condensee pour transmission IA)
+> **Tests** : 170 unitaires + 59 stress-test + 7 property-based = TOUS PASS
+> **Dependance optionnelle** : `hypothesis>=6.0.0` (property-based testing)
+> **Reference IA** : `REFERENCE_IA.md` (version condensee pour transmission IA)
 > **Repository** : github.com/Laas054/manager-alpha
 
 ---
@@ -36,7 +37,9 @@
 22. [Tableau des seuils et constantes](#22-tableau-des-seuils-et-constantes)
 23. [Mots interdits](#23-mots-interdits)
 24. [Alpha Interface — Couche d'interoperabilite](#24-alpha-interface--couche-dinteroperabilite)
-25. [Reference IA condensee (REFERENCE_IA.md)](#25-reference-ia-condensee-reference_iamd)
+25. [Module alpha_queue.py](#25-module-alpha_queuepy)
+26. [Les 7 optimisations](#26-les-7-optimisations)
+27. [Reference IA condensee (REFERENCE_IA.md)](#27-reference-ia-condensee-reference_iamd)
 
 ---
 
@@ -60,13 +63,17 @@ Le **Manager IA Alpha** est un systeme de gestion d'equipe de trading algorithmi
 |---|---|
 | Entretiens eliminatoires | 7 questions obligatoires + pieges, evaluation automatique |
 | Recrutement LLM | Evaluation d'agents IA avec severite accrue (90% minimum) |
-| Validation de signaux | Format strict a 10 champs, detection de langage flou |
-| Audit continu | Journal append-only, autorite superieure au Manager |
+| Validation de signaux | Format strict a 10 champs, detection de langage flou, **fail-fast** (arret des la premiere erreur) |
+| Audit continu | Journal append-only avec **chaine de hash SHA-256**, autorite superieure au Manager |
 | Systeme d'avertissements | 3 avertissements = exclusion automatique |
-| Suivi KPI | Blocage automatique si taux approbation > 5% |
+| Suivi KPI | Blocage automatique si taux approbation > 5% (minimum **20 signaux**) |
+| AgentRegistry optimise | **Lazy loading** + **cache LRU** (max 50 agents en memoire) |
+| Queue SQLite | **File d'attente persistee** pour livraison fiable des AlphaDecision |
+| Horodatage UTC strict | **Toutes les timestamps en UTC** via `utc_now()` centralisee |
 | Stress-test | Batterie de 59 verifications automatisees |
+| Property-based testing | **7 tests generatifs** (hypothesis) verifiant les invariants structurels |
 | Alpha Interface | Format de sortie AlphaDecision (schema JSON, contrat immutable, validation) |
-| Reference IA | Documentation condensee (519 lignes) pour transmission a d'autres IA |
+| Reference IA | Documentation condensee pour transmission a d'autres IA |
 
 ---
 
@@ -77,18 +84,20 @@ Le **Manager IA Alpha** est un systeme de gestion d'equipe de trading algorithmi
 ```
 C:\Users\Annick\manager-alpha\
 |
-|-- config.py                 # Configuration centrale (regles, seuils, constantes)
-|-- agent.py                  # Classe Agent + AgentRegistry
-|-- audit.py                  # Systeme d'audit + decorateur @audit_required
-|-- signal_alpha.py           # Validation stricte des signaux Alpha
+|-- config.py                 # Configuration centrale (regles, seuils, constantes, utc_now())
+|-- agent.py                  # Classe Agent + AgentRegistry (lazy loading + cache LRU)
+|-- audit.py                  # Systeme d'audit + chaine SHA-256 + decorateur @audit_required
+|-- signal_alpha.py           # Validation stricte des signaux Alpha (fail-fast)
 |-- interview.py              # Systeme d'entretien (questions, pieges, scoring)
-|-- kpi.py                    # Indicateurs de qualite + blocage automatique
+|-- kpi.py                    # Indicateurs de qualite + blocage automatique (N>=20)
 |-- llm_evaluator.py          # Evaluation d'agents LLM (live + simule)
-|-- manager.py                # Classe ManagerAlpha (orchestrateur central)
+|-- manager.py                # Classe ManagerAlpha (orchestrateur central + queue)
+|-- alpha_queue.py            # File d'attente SQLite persistee pour AlphaDecision
 |-- simulated_profiles.py     # Profils simules (4 personas x 5 roles)
 |-- failure_corpus.py         # Corpus de tests (signaux + entretiens echoues)
 |-- stress_test.py            # Tests de robustesse automatises
 |-- test_alpha.py             # 170 tests unitaires
+|-- test_property.py          # 7 tests property-based (hypothesis)
 |-- main.py                   # Interface CLI interactive (13 options)
 |
 |-- alpha_interface/
@@ -104,39 +113,43 @@ C:\Users\Annick\manager-alpha\
 |-- data/
 |   |-- agents.json           # Registre persistant des agents
 |   |-- questions.json        # Banque de questions d'entretien
+|   |-- alpha_queue.db        # Base SQLite file d'attente AlphaDecision
 |
 |-- logs/
-|   |-- audit.log             # Journal d'audit append-only
+|   |-- audit.log             # Journal d'audit append-only (chaine SHA-256)
+|   |-- audit.meta            # Dernier hash de la chaine d'audit
 |
 |-- DOCUMENTATION.md          # Documentation complete (ce fichier)
-|-- REFERENCE_IA.md           # Reference condensee pour transmission IA (519 lignes)
-|-- requirements.txt          # Dependances
+|-- REFERENCE_IA.md           # Reference condensee pour transmission IA
+|-- requirements.txt          # Dependances (hypothesis>=6.0.0)
 |-- .gitignore                # Fichiers exclus du versionnement
 ```
 
 ### Organisation en 4 couches
 
-**Couche Core (5 modules)** — Logique metier fondamentale :
-- `config.py` — Regles, seuils, constantes
-- `agent.py` — Entite Agent et registre
-- `audit.py` — Systeme d'audit (autorite superieure)
-- `signal_alpha.py` — Moteur de validation des signaux
-- `manager.py` — Orchestrateur central
+**Couche Core (6 modules)** — Logique metier fondamentale :
+- `config.py` — Regles, seuils, constantes, `utc_now()` centralise
+- `agent.py` — Entite Agent et registre (lazy loading + cache LRU max 50)
+- `audit.py` — Systeme d'audit (autorite superieure, chaine SHA-256)
+- `signal_alpha.py` — Moteur de validation des signaux (fail-fast)
+- `alpha_queue.py` — File d'attente SQLite persistee pour AlphaDecision
+- `manager.py` — Orchestrateur central (+ queue + audit callback)
 
 **Couche Interoperabilite (1 package)** — Sortie unique d'Alpha :
 - `alpha_interface/` — Format AlphaDecision, schema JSON, contrat de regles, validation structurelle
 
 **Couche Support (5 modules)** — Fonctionnalites complementaires :
 - `interview.py` — Systeme d'entretien et scoring
-- `kpi.py` — Indicateurs de qualite
+- `kpi.py` — Indicateurs de qualite (fenetre N>=20)
 - `llm_evaluator.py` — Evaluation d'agents LLM
 - `simulated_profiles.py` — Banque de reponses simulees
 - `failure_corpus.py` — Donnees de test
 
-**Couche Execution (3 modules)** — Points d'entree :
+**Couche Execution (4 modules)** — Points d'entree :
 - `main.py` — Interface CLI interactive
 - `stress_test.py` — Tests de robustesse
 - `test_alpha.py` — Tests unitaires
+- `test_property.py` — Tests property-based (hypothesis)
 
 ### Graphe de dependances
 
@@ -149,6 +162,7 @@ main.py
   |     |-- kpi.py -------------> config.py
   |     |-- llm_evaluator.py ---> config.py, interview.py, simulated_profiles.py
   |     |-- signal_alpha.py ----> config.py
+  |     |-- alpha_queue.py -----> config.py (SQLite)
   |     |-- alpha_interface/ ---> (AlphaDecisionBuilder)
   |-- audit.py (AuditViolation)
   |-- config.py
@@ -163,6 +177,13 @@ stress_test.py
 
 test_alpha.py
   |-- tous les modules
+  |-- alpha_interface/ (AlphaDecisionBuilder, validate_against_schema)
+
+test_property.py
+  |-- config.py
+  |-- signal_alpha.py
+  |-- kpi.py
+  |-- audit.py
   |-- alpha_interface/ (AlphaDecisionBuilder, validate_against_schema)
 ```
 
@@ -189,10 +210,14 @@ test_alpha.py
 
 **`data/questions.json`** — Banque de 7 questions d'entretien au format JSON (miroir des constantes `MANDATORY_QUESTIONS` dans `interview.py`).
 
-**`logs/audit.log`** — Journal d'audit en mode append-only. Format par entree :
+**`data/alpha_queue.db`** — Base de donnees SQLite pour la file d'attente persistee des AlphaDecision. Table `alpha_decisions` avec colonnes : `id`, `decision_id`, `payload` (JSON immutable), `status` (PENDING/DELIVERED/FAILED), `created_at`, `delivered_at`, `retry_count`, `max_retries`.
+
+**`logs/audit.log`** — Journal d'audit en mode append-only avec chaine de hash SHA-256. Format par entree :
 ```
-[2026-02-08T12:00:00] ACTION=submit_signal | ACTOR=agent_id | DETAILS=... | RESULT=APPROVED
+[2026-02-08T12:00:00+00:00] HASH=a1b2c3... | ACTION=submit_signal | ACTOR=agent_id | DETAILS=... | RESULT=APPROVED
 ```
+
+**`logs/audit.meta`** — Fichier contenant le dernier hash de la chaine d'audit. Utilise pour reprendre le chainage SHA-256 apres redemarrage.
 
 ---
 
@@ -219,6 +244,16 @@ Ces regles sont **non negociables**. Elles sont definies dans `config.py` sous `
 
 **Role** : Reference absolue du systeme. Toutes les regles, seuils, constantes et chemins sont centralises ici. Aucune interpretation libre n'est autorisee.
 
+### Fonction utilitaire
+
+```python
+def utc_now() -> datetime:
+    """Retourne l'heure courante en UTC."""
+    return datetime.now(timezone.utc)
+```
+
+Toutes les timestamps du systeme utilisent `utc_now()` au lieu de `datetime.now()`. Cela garantit la coherence horaire sur tous les modules (16 occurrences remplacees dans 8 fichiers).
+
 ### Constantes principales
 
 | Constante | Type | Valeur | Description |
@@ -239,12 +274,16 @@ Ces regles sont **non negociables**. Elles sont definies dans `config.py` sous `
 |---|---|---|
 | `MAX_WARNINGS` | 3 | 3 avertissements = exclusion automatique |
 | `MAX_APPROVAL_PCT` | 5.0% | Si > 5% signaux approuves -> blocage |
+| `MIN_SIGNALS_FOR_BLOCKING` | 20 | Nombre minimum de signaux avant activation du blocage KPI |
 | `INTERVIEW_PASS_SCORE_HUMAN` | 80% | Score minimum pour les humains |
 | `INTERVIEW_PASS_SCORE_LLM` | 90% | Score minimum pour les LLM |
 | `MIN_EDGE_NET` | 0.5% | Edge net minimum accepte |
 | `MAX_TIME_TO_RESOLUTION_HOURS` | 72h | Temps maximum avant resolution |
 | `LATE_EDGE_SUSPICION_HOURS` | 48h | Edge eleve + temps > 48h = suspect |
 | `METRIC_DOMINANCE_THRESHOLD` | 60% | Si une metrique > 60% des mentions -> REJET |
+| `AGENT_CACHE_MAX_SIZE` | 50 | Taille max du cache LRU AgentRegistry |
+| `QUEUE_MAX_RETRIES` | 3 | Nombre max de tentatives de livraison queue |
+| `QUEUE_ENABLED` | True | Active la file d'attente SQLite |
 
 ### Statuts
 
@@ -278,8 +317,10 @@ Ces regles sont **non negociables**. Elles sont definies dans `config.py` sous `
 | `LOGS_DIR` | "logs" |
 | `AGENTS_FILE` | "data/agents.json" |
 | `AUDIT_LOG_FILE` | "logs/audit.log" |
+| `AUDIT_META_FILE` | "logs/audit.meta" |
 | `KPI_LOG_FILE` | "logs/kpi.log" |
 | `QUESTIONS_FILE` | "data/questions.json" |
+| `QUEUE_DB_PATH` | "data/alpha_queue.db" |
 
 ---
 
@@ -332,39 +373,49 @@ Agent(name: str, role: str)
 
 ### Classe `AgentRegistry`
 
-Registre centralise avec persistance JSON.
+Registre centralise avec **lazy loading** et **cache LRU** (max 50 agents en memoire).
 
 **Constructeur** :
 ```python
 AgentRegistry()
 ```
-- Charge automatiquement les agents depuis `data/agents.json` a l'initialisation.
+- Charge un **index leger** depuis `data/agents.json` (id -> {status, role, name}).
+- Les objets `Agent` complets ne sont charges qu'a la demande (**lazy loading**).
+- Un cache LRU (`OrderedDict`, max `AGENT_CACHE_MAX_SIZE=50`) evite les relectures frequentes.
+
+**Architecture interne** :
+- `_index` : `dict[str, dict]` — Index leger (toujours en memoire)
+- `_cache` : `OrderedDict` — Cache LRU des agents charges (max 50)
+- `_audit_callback` : `callable|None` — Callback d'audit pose par `manager.py`
 
 **Methodes** :
 
 | Methode | Signature | Description |
 |---|---|---|
-| `add(agent)` | `(Agent) -> str` | Ajoute un agent, sauvegarde, retourne l'ID |
-| `get(agent_id)` | `(str) -> Agent\|None` | Recupere un agent par ID |
-| `remove(agent_id)` | `(str) -> bool` | Supprime un agent |
-| `list_all()` | `-> list[Agent]` | Tous les agents |
-| `list_by_status(status)` | `(str) -> list[Agent]` | Filtrage par statut |
+| `add(agent)` | `(Agent) -> str` | Ajoute un agent, met a jour index + cache, sauvegarde |
+| `get(agent_id)` | `(str) -> Agent\|None` | Cache hit -> retour (move_to_end). Cache miss -> `_load_single()` + `_cache_put()`. |
+| `remove(agent_id)` | `(str) -> bool` | Supprime de l'index + cache + sauvegarde |
+| `list_all()` | `-> list[Agent]` | Charge tous les agents via `get()` |
+| `list_by_status(status)` | `(str) -> list[Agent]` | Filtre sur l'index d'abord, puis charge uniquement les agents matchants |
 | `list_active()` | `-> list[Agent]` | Agents actifs |
 | `list_candidates()` | `-> list[Agent]` | Candidats |
 | `list_excluded()` | `-> list[Agent]` | Agents exclus |
 | `list_by_role(role)` | `(str) -> list[Agent]` | Filtrage par role |
-| `_save()` | `-> None` | Sauvegarde en JSON (interne) |
-| `_load()` | `-> None` | Chargement depuis JSON (interne) |
+| `_load_index()` | `-> None` | Charge le JSON et construit l'index leger |
+| `_load_single(agent_id)` | `(str) -> Agent\|None` | Lit le JSON, deserialise UN seul agent |
+| `_cache_put(agent_id, agent)` | `(str, Agent) -> None` | Insertion dans le cache + eviction LRU si > 50 |
+| `_refresh_index()` | `-> None` | Rafraichit l'index depuis le JSON |
+| `_save()` | `-> None` | Lit le JSON existant, overlay les agents caches, supprime les non-indexes, ecrit |
 
 ---
 
 ## 6. MODULE `audit.py`
 
-**Role** : Systeme d'audit avec **autorite superieure au Manager**. Journal append-only, horodatage obligatoire, non modifiable. Le Manager ne peut pas contourner l'audit.
+**Role** : Systeme d'audit avec **autorite superieure au Manager**. Journal append-only avec **chaine de hash SHA-256**, horodatage UTC obligatoire, non modifiable. Le Manager ne peut pas contourner l'audit.
 
 ### Classe `AuditViolation`
 
-Exception personnalisee levee quand l'audit bloque une action.
+Exception personnalisee levee quand l'audit bloque une action ou quand la chaine de hash est corrompue.
 
 ```python
 class AuditViolation(Exception): pass
@@ -377,13 +428,22 @@ class AuditViolation(Exception): pass
 AuditSystem()
 ```
 - Cree le repertoire `logs/` si absent
-- Initialise le journal d'audit
+- Initialise le journal d'audit avec une entree INIT hashee
+- Charge le dernier hash depuis `logs/audit.meta` (genesis = `"0" * 64`)
+
+**Chaine de hash SHA-256** :
+
+Chaque entree du journal est chainee cryptographiquement. Le hash de chaque entree est calcule via `SHA-256(previous_hash + raw_entry)`. Cette chaine garantit l'integrite du journal : toute modification, insertion ou suppression d'une entree est detectable.
+
+- **Genesis hash** : `"0" * 64` (64 zeros)
+- **Format d'entree** : `[{timestamp}] HASH={sha256} | ACTION=... | ACTOR=... | DETAILS=... | RESULT=...`
+- **Persistance** : Le dernier hash est sauvegarde dans `logs/audit.meta` apres chaque ecriture
 
 **Methodes** :
 
 | Methode | Signature | Description |
 |---|---|---|
-| `log(action, actor, details, result)` | `(str, str, str, str) -> None` | Ecrit une entree horodatee dans le journal. **Append-only** : ouverture en mode `"a"`. |
+| `log(action, actor, details, result)` | `(str, str, str, str) -> None` | Ecrit une entree horodatee et hashee dans le journal. **Append-only** : ouverture en mode `"a"`. Chaque entree est chainee par SHA-256. |
 | `authorize(action, actor, context)` | `(str, str, dict\|None) -> bool` | Autorise ou bloque une action AVANT execution. Leve `AuditViolation` si bypass interdit. |
 | `authorize_signal_approval(kpi_data)` | `(dict) -> bool` | Verifie si les approbations sont autorisees. Bloque si taux > 5%. |
 | `check_language(text, is_llm)` | `(str, bool) -> dict` | Detecte le langage flou (Regle 7). Retourne `{"clean": bool, "violations": list}`. |
@@ -393,8 +453,12 @@ AuditSystem()
 | `review_agent_history(agent)` | `(Agent) -> dict` | Revue complete de l'historique. Si echec > 30% -> recommandation EXCLUSION. |
 | `detect_deviation(action, context)` | `(str, dict) -> dict\|None` | Detecte les tentatives de deviation (forcer trade, minimiser risque, contourner seuil). |
 | `read_log(last_n)` | `(int) -> list[str]` | Lit les N dernieres entrees du journal. Lecture seule. |
+| `verify_integrity()` | `-> dict` | Parcourt tout le journal, recalcule chaque hash, verifie la chaine. Retourne `{"valid": bool, "entries": int}`. Leve `AuditViolation` si la chaine est corrompue. |
+| `_load_last_hash()` | `-> str` | Charge le dernier hash depuis `audit.meta` (genesis si absent). |
+| `_save_last_hash()` | `-> None` | Sauvegarde le dernier hash dans `audit.meta`. |
+| `_compute_hash(prev_hash, raw_entry)` | `(str, str) -> str` | Calcule SHA-256(prev_hash + raw_entry). |
 
-**Verrouillage** : La classe `AuditSystem` ne possede **aucune methode** `delete_log`, `edit_log`, `clear_log` ou `modify_log`. Le journal est immuable.
+**Verrouillage** : La classe `AuditSystem` ne possede **aucune methode** `delete_log`, `edit_log`, `clear_log` ou `modify_log`. Le journal est immuable. La chaine de hash SHA-256 rend toute alteration detectable.
 
 ### Decorateur `@audit_required`
 
@@ -424,7 +488,7 @@ Decorateur qui impose l'autorisation de l'audit AVANT toute action critique du M
 
 ## 7. MODULE `signal_alpha.py`
 
-**Role** : Format officiel et validation stricte des signaux Alpha. Champ manquant = rejet automatique. Aucune exception.
+**Role** : Format officiel et validation stricte des signaux Alpha. Champ manquant = rejet automatique. Aucune exception. **Fail-fast** : la validation s'arrete des la premiere erreur detectee (court-circuit entre les 8 etapes).
 
 ### Classe `SignalAlpha`
 
@@ -456,23 +520,32 @@ validate() -> dict
 
 Retourne `{"valid": bool, "errors": list, "status": str, "comment": str}`.
 
-**Pipeline de validation** (dans cet ordre) :
+**Pipeline de validation fail-fast** (dans cet ordre, **arret des la premiere erreur**) :
 
 1. **`_check_required_fields()`** — Regle 8 : Tout signal doit etre ecrit. Champ manquant ou vide -> rejet immediat.
+   *Si erreur(s) -> REJET immediat, etapes 2-8 non executees.*
 
 2. **`_check_signal_type()`** — Type doit etre dans `["ARBITRAGE", "PROBA", "MOMENTUM"]`.
+   *Si erreur(s) -> REJET immediat, etapes 3-8 non executees.*
 
 3. **`_check_signal_status()`** — Statut doit etre dans `["APPROVED", "SURVEILLANCE", "REJECTED"]`.
+   *Si erreur(s) -> REJET immediat, etapes 4-8 non executees.*
 
 4. **`_check_edge_net()`** — Regle 4 : Edge net doit etre numerique et >= 0.5%.
+   *Si erreur(s) -> REJET immediat, etapes 5-8 non executees.*
 
 5. **`_check_time_to_resolution()`** — Regle 5 : Temps <= 72h. Si edge > 5% ET temps > 48h -> signal SUSPECT.
+   *Si erreur(s) -> REJET immediat, etapes 6-8 non executees.*
 
 6. **`_check_language()`** — Regle 7 : Detection de mots flous dans le commentaire et les risques.
+   *Si erreur(s) -> REJET immediat, etapes 7-8 non executees.*
 
 7. **`_check_single_metric_dominance()`** — Regle 2 (CONDITION 1) : Si une metrique represente > 60% des mentions dans le commentaire -> REJET. Si le commentaire ne mentionne qu'une seule metrique alors que 3+ sont fournies -> REJET.
+   *Si erreur(s) -> REJET immediat, etape 8 non executee.*
 
 8. **`_check_risks_field()`** — Champ risques doit faire au moins 10 caracteres.
+
+**Note** : Le fail-fast est entre les methodes. Les erreurs internes a une meme methode sont toutes collectees avant le court-circuit.
 
 **Autres methodes** :
 
@@ -634,7 +707,7 @@ KPITracker()
 
 | Methode | Signature | Description |
 |---|---|---|
-| `_check_approval_threshold()` | `-> None` | Verifie si > 5% approuves (minimum 5 signaux) -> bloque |
+| `_check_approval_threshold()` | `-> None` | Verifie si > 5% approuves (minimum **20 signaux** = `MIN_SIGNALS_FOR_BLOCKING`) -> bloque |
 | `is_approval_blocked()` | `-> bool` | Etat du blocage |
 | `manual_unblock(reviewer, reason)` | `(str, str) -> dict` | Deblocage manuel avec justification |
 
@@ -743,9 +816,10 @@ ManagerAlpha()
 ```
 Initialise :
 - `AuditSystem` — systeme d'audit
-- `AgentRegistry` — registre des agents
+- `AgentRegistry` — registre des agents (+ callback d'audit pour tracer les acces)
 - `KPITracker` — suivi des KPIs
 - `LLMEvaluator` — evaluateur LLM
+- `AlphaDecisionQueue` — file d'attente SQLite (si `QUEUE_ENABLED=True`)
 - `active_interviews` — sessions d'entretien en cours
 - `bypass_mode` — mode consultation (desactive par defaut)
 
@@ -763,7 +837,7 @@ Initialise :
 
 | Methode | Decorateur | Description |
 |---|---|---|
-| `submit_signal(agent_id, signal_data, context)` | `@audit_required("submit_signal")` | Valide un signal Alpha. Verifie : agent actif, validation signal, langage, blocage KPI. Enregistre les KPIs. **Genere automatiquement un AlphaDecision** via `AlphaDecisionBuilder`. |
+| `submit_signal(agent_id, signal_data, context)` | `@audit_required("submit_signal")` | Valide un signal Alpha. Verifie : agent actif, validation signal, langage, blocage KPI. Enregistre les KPIs. **Genere automatiquement un AlphaDecision** via `AlphaDecisionBuilder`. **Enqueue la decision** dans la file SQLite (non bloquant, try/except). |
 
 **Methodes d'audit** :
 
@@ -942,7 +1016,7 @@ Execute 8 sections de test (59 verifications au total) :
 | 3. Signaux borderline | 7 | Corpus BORDERLINE_SIGNALS. Chacun a son resultat attendu. |
 | 4. Entretiens echoues | 6 | Corpus FAILED_INTERVIEWS. Tous doivent etre rejetes. |
 | 5. Entretiens borderline | 2 | Corpus BORDERLINE_INTERVIEWS. Observation (toujours correct). |
-| 6. Stress KPI | 5 | Recrutement agent, soumission 3 approved + 2 rejected, blocage KPI, signal bloque, deblocage manuel. |
+| 6. Stress KPI | 5 | Recrutement agent, injection directe 12 APPROVED + 8 REJECTED (20 signaux, 60% approbation), blocage KPI, signal bloque, deblocage manuel. |
 | 7. Stress avertissements | 1 | 3 warnings -> exclusion automatique. |
 | 8. Integration Manager | 3 | Simulated/disciplined recrute, simulated/naive rejete, simulated/overconfident rejete. |
 
@@ -1132,14 +1206,14 @@ Choix de l'agent actif + saisie des 10 champs
 Verification agent actif
   |
   v
-SignalAlpha.validate() :
-  |-- Champs obligatoires presents ?
-  |-- Type valide (ARBITRAGE/PROBA/MOMENTUM) ?
-  |-- Statut valide (APPROVED/SURVEILLANCE/REJECTED) ?
-  |-- Edge net >= 0.5% ?
-  |-- Temps <= 72h ? Edge eleve + temps > 48h = suspect ?
-  |-- Langage flou dans commentaire/risques ?
-  |-- Dominance d'une metrique (> 60%) ?
+SignalAlpha.validate() (FAIL-FAST : arret des la premiere erreur) :
+  |-- Champs obligatoires presents ? -> si erreur : REJET immediat
+  |-- Type valide (ARBITRAGE/PROBA/MOMENTUM) ? -> si erreur : REJET immediat
+  |-- Statut valide (APPROVED/SURVEILLANCE/REJECTED) ? -> si erreur : REJET immediat
+  |-- Edge net >= 0.5% ? -> si erreur : REJET immediat
+  |-- Temps <= 72h ? Edge eleve + temps > 48h = suspect ? -> si erreur : REJET immediat
+  |-- Langage flou dans commentaire/risques ? -> si erreur : REJET immediat
+  |-- Dominance d'une metrique (> 60%) ? -> si erreur : REJET immediat
   |-- Risques suffisamment detailles (>= 10 chars) ?
   |
   v
@@ -1165,6 +1239,9 @@ AlphaDecisionBuilder.build() :
   |
   v
 Log audit : alpha_decision_generated
+  |
+  v
+Queue SQLite : enqueue(alpha_decision) (non bloquant, try/except)
   |
   v
 Resultat : APPROVED / SURVEILLANCE / REJECTED + alpha_decision
@@ -1204,7 +1281,7 @@ Chaque signal soumis -> KPITracker.record_signal()
   |
   v
 _check_approval_threshold() :
-  |-- signals_approved_pct > 5% ET total >= 5 ?
+  |-- signals_approved_pct > 5% ET total >= 20 (MIN_SIGNALS_FOR_BLOCKING) ?
   |     |-- OUI -> approval_blocked = True
   |     |-- NON -> continue
   |
@@ -1219,9 +1296,11 @@ Si blocage actif :
 
 ## 18. SYSTEME DE SECURITE ET VERROUILLAGES
 
-### 1. Journal d'audit append-only
+### 1. Journal d'audit append-only avec chaine SHA-256
 
-Le fichier `logs/audit.log` est ouvert en mode `"a"` (append) a chaque ecriture. La classe `AuditSystem` ne possede **aucune methode** de suppression, modification ou vidage :
+Le fichier `logs/audit.log` est ouvert en mode `"a"` (append) a chaque ecriture. Chaque entree est chainee cryptographiquement par **SHA-256** : `hash_n = SHA-256(hash_{n-1} + raw_entry)`. La methode `verify_integrity()` parcourt tout le journal et verifie la chaine complete. Toute alteration est detectee et leve `AuditViolation`.
+
+La classe `AuditSystem` ne possede **aucune methode** de suppression, modification ou vidage :
 - Pas de `delete_log()`
 - Pas de `edit_log()`
 - Pas de `clear_log()`
@@ -1240,7 +1319,7 @@ Le mode `--bypass-permission` limite les actions a la consultation :
 
 ### 4. Blocage KPI automatique
 
-Si le taux d'approbation depasse 5% (avec minimum 5 signaux soumis) :
+Si le taux d'approbation depasse 5% (avec minimum **20 signaux** soumis = `MIN_SIGNALS_FOR_BLOCKING`) :
 - `approval_blocked = True` automatiquement
 - Tout nouveau signal APPROVED est rejete
 - Deblocage uniquement par `manual_unblock(reviewer, reason)` avec justification
@@ -1433,7 +1512,36 @@ RESULTAT FINAL : CONFORME
 59/59 verifications correctes
 ```
 
-**Couverture** : 8 sections testant 20 combinaisons roles x personas, 15 signaux invalides, 7 signaux borderline, 6 entretiens echoues, 2 entretiens borderline, stress KPI, stress avertissements, et integration Manager.
+**Couverture** : 8 sections testant 20 combinaisons roles x personas, 15 signaux invalides, 7 signaux borderline, 6 entretiens echoues, 2 entretiens borderline, stress KPI (20 signaux minimum), stress avertissements, et integration Manager.
+
+### Property-based testing (`test_property.py`)
+
+**Dependance** : `hypothesis>=6.0.0` (`pip install hypothesis`)
+
+**Execution** :
+```bash
+python test_property.py
+```
+
+**Resultat attendu** :
+```
+RESULTATS: 7 PASS / 0 FAIL / 7 TOTAL
+TOUS LES PROPERTY TESTS PASSES.
+```
+
+**7 tests generatifs** verifiant les invariants structurels du systeme :
+
+| Test | Invariant verifie | Max examples |
+|---|---|---|
+| Signal valide -> toujours valide | Tout signal conforme au protocole passe la validation | 50 |
+| Signal incomplet -> toujours rejete | Un signal avec champs aleatoires (pas les 10 requis) est rejete | 50 |
+| Edge < 0.5% -> toujours rejete | Un edge_net inferieur au minimum est rejete | 50 |
+| Mot interdit -> toujours rejete | Tout mot interdit dans le commentaire provoque un rejet | 30 |
+| AlphaDecision -> toujours conforme | Toute AlphaDecision construite passe la validation de schema | 50 |
+| KPI <= 5% -> jamais bloque | Si taux approbation <= 5% avec >= 20 signaux, pas de blocage | 50 |
+| Hash chain -> integrite verifiee | La chaine de hash reste integre quel que soit le nombre d'entrees | 10 |
+
+**Strategies hypothesis utilisees** : `st.fixed_dictionaries`, `st.sampled_from`, `st.floats`, `st.integers`, `st.text` pour generer des signaux valides et invalides aleatoirement.
 
 ---
 
@@ -1446,7 +1554,9 @@ RESULTAT FINAL : CONFORME
 | Penalite LLM | -10% | interview.py | `score * 0.90` |
 | Max avertissements | 3 | config.py | `MAX_WARNINGS` |
 | Max approbation % | 5.0% | config.py | `MAX_APPROVAL_PCT` |
-| Min signaux pour blocage | 5 | kpi.py | `total_signals_submitted >= 5` |
+| Min signaux pour blocage | 20 | config.py | `MIN_SIGNALS_FOR_BLOCKING = 20` |
+| Cache LRU max agents | 50 | config.py | `AGENT_CACHE_MAX_SIZE = 50` |
+| Queue max tentatives | 3 | config.py | `QUEUE_MAX_RETRIES = 3` |
 | Edge net minimum | 0.5% | config.py | `MIN_EDGE_NET` |
 | Temps max resolution | 72h | config.py | `MAX_TIME_TO_RESOLUTION_HOURS` |
 | Seuil edge tardif suspect | 48h | config.py | `LATE_EDGE_SUSPICION_HOURS` |
@@ -1729,34 +1839,127 @@ La cle `"alpha_decision"` est ajoutee au dict retourne par `submit_signal()` (aj
 
 ---
 
-## 25. REFERENCE IA CONDENSEE (REFERENCE_IA.md)
+## 25. MODULE `alpha_queue.py`
+
+**Role** : File d'attente persistee SQLite pour la livraison fiable des AlphaDecision aux equipes externes. Le payload JSON est **immutable** une fois enqueue.
+
+### Classe `AlphaDecisionQueue`
+
+**Constructeur** :
+```python
+AlphaDecisionQueue(db_path: str | None = None)
+```
+- Cree le repertoire `data/` si absent
+- Initialise la base SQLite `data/alpha_queue.db`
+- Cree la table `alpha_decisions` si elle n'existe pas
+
+**Table `alpha_decisions`** :
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | `INTEGER PRIMARY KEY` | Identifiant auto-incremente |
+| `decision_id` | `TEXT UNIQUE NOT NULL` | ID de la decision Alpha |
+| `payload` | `TEXT NOT NULL` | JSON serialise (immutable) |
+| `status` | `TEXT NOT NULL` | `PENDING`, `DELIVERED`, ou `FAILED` |
+| `created_at` | `TEXT NOT NULL` | Date d'insertion (ISO 8601 UTC) |
+| `delivered_at` | `TEXT` | Date de livraison (ISO 8601 UTC) |
+| `retry_count` | `INTEGER` | Nombre de tentatives echouees |
+| `max_retries` | `INTEGER` | Maximum de tentatives (defaut: 3) |
+
+**Methodes** :
+
+| Methode | Signature | Description |
+|---|---|---|
+| `enqueue(decision)` | `(dict) -> str` | Insere une AlphaDecision (JSON immutable). Retourne le decision_id. |
+| `fetch_pending(limit)` | `(int) -> list[dict]` | Recupere les decisions en attente (FIFO). |
+| `mark_delivered(decision_id)` | `(str) -> bool` | Marque comme livree (NE modifie PAS le payload). |
+| `mark_failed(decision_id)` | `(str) -> bool` | Marque comme echouee, incremente retry_count. |
+| `retry_failed()` | `-> int` | Remet en PENDING les FAILED si retry_count < max_retries. |
+| `count_pending()` | `-> int` | Nombre de decisions en attente. |
+| `count_all()` | `-> dict` | Compteurs par statut. |
+
+**Integration dans `manager.py`** : Apres la generation de l'AlphaDecision dans `submit_signal()`, la decision est enqueue de maniere non bloquante (try/except). La queue ne bloque **jamais** le flux principal.
+
+---
+
+## 26. LES 7 OPTIMISATIONS
+
+Les optimisations suivantes ont ete implementees sans modifier l'ADN du systeme (regles d'or, seuils de decision, comportement de rejet). Elles renforcent la fiabilite, la performance et la tracabilite.
+
+### Optimisation 1 : UTC Strict
+
+**Fichiers modifies** : config.py, agent.py, audit.py, interview.py, kpi.py, signal_alpha.py, stress_test.py, alpha_decision.py
+
+Toutes les timestamps du systeme utilisent desormais `utc_now()` (definie dans `config.py`) au lieu de `datetime.now()`. Cela garantit la coherence horaire entre tous les modules, quel que soit le fuseau du serveur. **16 occurrences remplacees dans 8 fichiers.**
+
+### Optimisation 2 : Signal Validation Fail-Fast
+
+**Fichier modifie** : signal_alpha.py
+
+La methode `validate()` s'arrete desormais des la premiere erreur detectee. Apres chaque appel `_check_*()`, si `self.validation_errors` est non vide, la validation retourne immediatement un rejet. L'ordre des 8 etapes est preserve. Cela evite du travail inutile et rend les messages d'erreur plus precis.
+
+### Optimisation 3 : KPI Fenetre N>=20
+
+**Fichiers modifies** : config.py, kpi.py, test_alpha.py, stress_test.py
+
+Le seuil minimum de signaux avant activation du blocage KPI passe de 5 a **20** (`MIN_SIGNALS_FOR_BLOCKING = 20`). Le seuil de 5% (`MAX_APPROVAL_PCT`) reste inchange. Cela evite les faux positifs sur un echantillon trop petit.
+
+### Optimisation 4 : Audit Hash Chain SHA-256
+
+**Fichiers modifies** : config.py, audit.py
+
+Chaque entree du journal d'audit est desormais chainee par **SHA-256**. Le hash de chaque entree depend du hash precedent, formant une chaine cryptographique. La methode `verify_integrity()` permet de verifier l'integrite complete du journal. Toute alteration est detectee et leve `AuditViolation`.
+
+### Optimisation 5 : AgentRegistry Lazy Loading + Cache LRU
+
+**Fichiers modifies** : config.py, agent.py, manager.py
+
+L'`AgentRegistry` ne charge plus tous les agents en memoire au demarrage. Un index leger est maintenu, et les objets `Agent` sont charges a la demande avec un **cache LRU** (max 50, `AGENT_CACHE_MAX_SIZE`). Un callback d'audit est pose par `manager.py` pour tracer les acces au registre.
+
+### Optimisation 6 : Queue SQLite
+
+**Fichiers crees** : alpha_queue.py
+**Fichiers modifies** : config.py, manager.py
+
+Une file d'attente persistee SQLite garantit la livraison des AlphaDecision aux equipes externes. Le payload JSON est immutable. La queue est transparente (try/except) et ne bloque jamais le flux principal.
+
+### Optimisation 7 : Property-Based Testing
+
+**Fichiers crees** : test_property.py
+**Fichiers modifies** : requirements.txt
+
+7 tests generatifs (hypothesis) verifient les invariants structurels du systeme : signaux valides/invalides, mots interdits, AlphaDecision conforme, KPI coherent, chaine de hash integre. Dependance : `hypothesis>=6.0.0`.
+
+---
+
+## 27. REFERENCE IA CONDENSEE (REFERENCE_IA.md)
 
 ### Objectif
 
-Le fichier `REFERENCE_IA.md` est une version **condensee** (519 lignes) de cette documentation, optimisee pour etre transmise a d'autres IA. Il contient la totalite des informations techniques necessaires pour comprendre, analyser et travailler avec le systeme Manager Alpha sans acceder au code source.
+Le fichier `REFERENCE_IA.md` est une version **condensee** de cette documentation, optimisee pour etre transmise a d'autres IA. Il contient la totalite des informations techniques necessaires pour comprendre, analyser et travailler avec le systeme Manager Alpha sans acceder au code source.
 
 ### Contenu
 
 | Section | Description |
 |---|---|
 | Loi fondatrice + 10 Regles d'Or | Regles avec consequences directes |
-| Architecture | 14 modules + 1 package avec dependances |
-| Seuils et constantes | Toutes les valeurs de config.py |
+| Architecture | 16 modules + 1 package avec dependances |
+| Seuils et constantes | Toutes les valeurs de config.py (incluant les 7 optimisations) |
 | Mots interdits | 33 termes (FR + EN + LLM) listes |
 | Classes et methodes | Signatures, parametres, retours, comportements |
 | 7 questions d'entretien | Keywords requis/interdits, pieges, max phrases |
-| Pipeline de validation | 8 etapes avec mots-cles de detection |
+| Pipeline de validation | 8 etapes fail-fast avec mots-cles de detection |
 | Alpha Interface | Schema JSON, builder, derivations, regex |
+| Queue SQLite | File d'attente persistee pour AlphaDecision |
 | Flux metier | Signal, recrutement humain, recrutement LLM, blocage KPI |
-| Securite | 6 verrouillages documentes |
-| Tests | 170 unitaires (12 sections) + 59 stress (8 sections) |
+| Securite | 7 verrouillages documentes (incluant hash chain SHA-256) |
+| Tests | 170 unitaires + 59 stress + 7 property-based |
 | CLI | 13 options, modes STANDBY/ACTIVE |
 
 ### Differences avec DOCUMENTATION.md
 
 | Critere | DOCUMENTATION.md | REFERENCE_IA.md |
 |---|---|---|
-| Lignes | ~1730 | 519 |
 | Public cible | Humains + IA | IA uniquement |
 | Format | Explicatif, exemples CLI, guides | Tableaux, signatures, listes structurees |
 | Exemples d'utilisation CLI | Oui (option par option) | Non |
@@ -1774,4 +1977,4 @@ Pour transmettre le contexte complet du projet a une autre IA :
 ---
 
 *Documentation generee automatiquement a partir du code source du projet Manager IA Alpha.*
-*170 tests unitaires + 59 stress-test = TOUS PASS.*
+*170 tests unitaires + 59 stress-test + 7 property-based = TOUS PASS.*
