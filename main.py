@@ -15,6 +15,7 @@ from config import (
     ALPHA_LAW,
     ALPHA_ROLES,
     GOLDEN_RULES,
+    LLM_API_MODE,
     SIGNAL_REQUIRED_FIELDS,
     SIGNAL_STATUSES,
     SIGNAL_TYPES,
@@ -90,19 +91,24 @@ def show_menu(bypass_mode: bool = False) -> None:
     print(f"  {Colors.BOLD}Loi fondatrice :{Colors.END} {ALPHA_LAW[:80]}...")
     if bypass_mode:
         print(f"  {Colors.YELLOW}[MODE BYPASS — Consultation uniquement]{Colors.END}")
+    if LLM_API_MODE == "STANDBY":
+        print(f"  {Colors.YELLOW}[API LLM : STANDBY — Mode simule uniquement]{Colors.END}")
+    else:
+        print(f"  {Colors.GREEN}[API LLM : ACTIVE]{Colors.END}")
     print()
     print("  1. Recruter un agent (entretien humain)")
-    print("  2. Évaluer un agent LLM")
+    print("  2. Evaluer un agent LLM")
     print("  3. Soumettre un signal Alpha")
     print("  4. Auditer un agent")
     print("  5. Voir les KPIs")
     print("  6. Lister les agents")
-    print("  7. Revue complète de tous les agents")
+    print("  7. Revue complete de tous les agents")
     print("  8. Voir le journal d'audit")
-    print("  9. Afficher les Règles d'Or")
+    print("  9. Afficher les Regles d'Or")
     print("  10. Avertir un agent")
     print("  11. Basculer mode bypass")
-    print("  12. Débloquer les approbations (revue manuelle)")
+    print("  12. Debloquer les approbations (revue manuelle)")
+    print("  13. Stress-test automatise (batterie complete)")
     print("  0. Quitter")
     print()
 
@@ -197,7 +203,9 @@ AVAILABLE_MODELS = {
 
 AVAILABLE_PERSONAS = {
     "1": ("disciplined", "Discipline (connait les regles Alpha)"),
-    "2": ("naive", "Naif (ne connait pas les regles — test de rejet)"),
+    "2": ("mediocre", "Mediocre (connaissance partielle — borderline)"),
+    "3": ("overconfident", "Surconfiant (bon techniquement, pousse les limites)"),
+    "4": ("naive", "Naif (ne connait pas les regles — test de rejet)"),
 }
 
 
@@ -242,18 +250,36 @@ def _live_interview_callback(qid, question, response, evaluation):
 
 
 def evaluate_llm(manager: ManagerAlpha) -> None:
-    print_header("ENTRETIEN LLM LIVE — ANTHROPIC CLAUDE")
+    print_header("EVALUATION AGENT LLM")
     print_info("Severite accrue : score minimum 90%, tolerance zero.")
-    print_info("Le Manager Alpha va interroger un agent Claude en temps reel.\n")
 
-    # Mode de fonctionnement
+    if LLM_API_MODE == "STANDBY":
+        print_warning("API LLM en STANDBY — Mode simule et manuel uniquement.")
+        print_info("Pour activer l'API, changez LLM_API_MODE a 'ACTIVE' dans config.py.\n")
+        print("  Mode :")
+        print("    1. Entretien SIMULE (reponses locales pre-calibrees)")
+        print("    2. Entretien MANUEL (saisie des reponses)")
+        mode = safe_input("\n  Choix [1/2] : ")
+
+        if mode == "2":
+            _evaluate_llm_manual(manager)
+        else:
+            _evaluate_llm_simulated(manager)
+        return
+
+    # Mode ACTIVE — toutes les options disponibles
+    print_info("Le Manager Alpha va interroger un agent Claude en temps reel.\n")
     print("  Mode :")
     print("    1. Entretien LIVE (API Anthropic)")
-    print("    2. Entretien MANUEL (saisie des reponses)")
-    mode = safe_input("\n  Choix [1/2] : ")
+    print("    2. Entretien SIMULE (reponses locales)")
+    print("    3. Entretien MANUEL (saisie des reponses)")
+    mode = safe_input("\n  Choix [1/2/3] : ")
 
-    if mode == "2":
+    if mode == "3":
         _evaluate_llm_manual(manager)
+        return
+    if mode == "2":
+        _evaluate_llm_simulated(manager)
         return
 
     # --- MODE LIVE ---
@@ -272,7 +298,7 @@ def evaluate_llm(manager: ManagerAlpha) -> None:
         print_error("Role invalide.")
         return
 
-    # Choix du modèle
+    # Choix du modele
     print("\n  Modeles disponibles :")
     for k, (mid, desc) in AVAILABLE_MODELS.items():
         print(f"    {k}. {desc}")
@@ -318,6 +344,60 @@ def evaluate_llm(manager: ManagerAlpha) -> None:
         print_success(f"Agent LLM {name} RECRUTE (ID: {result['agent_id']})")
     else:
         print_error(f"Agent LLM {name} REJETE")
+
+
+def _evaluate_llm_simulated(manager: ManagerAlpha) -> None:
+    """Mode simulé : agent LLM avec réponses pré-calibrées localement."""
+    print_header("ENTRETIEN LLM SIMULE — Mode STANDBY")
+    print_info("Reponses generees localement (pas d'appel API).")
+
+    name = safe_input("\nNom de l'agent LLM simule : ")
+    if not name:
+        print_error("Nom requis.")
+        return
+
+    print(f"\nRoles disponibles : {', '.join(ALPHA_ROLES)}")
+    role = safe_input("Role : ")
+    if role not in ALPHA_ROLES:
+        print_error("Role invalide.")
+        return
+
+    # Choix du persona
+    print("\n  Persona du candidat simule :")
+    for k, (pid, desc) in AVAILABLE_PERSONAS.items():
+        print(f"    {k}. {desc}")
+    persona_choice = safe_input("\n  Persona [1/2/3/4] : ") or "1"
+    persona = AVAILABLE_PERSONAS.get(persona_choice, AVAILABLE_PERSONAS["1"])[0]
+
+    print_header(
+        f"ENTRETIEN SIMULE — {name} ({role})\n"
+        f"  Persona: {persona} | Mode: SIMULATED (local)"
+    )
+
+    try:
+        result = manager.evaluate_llm_agent_simulated(
+            name=name,
+            role=role,
+            persona=persona,
+            callback=_live_interview_callback,
+        )
+    except AuditViolation as e:
+        print_error(f"Audit bloque l'evaluation : {e}")
+        return
+    except Exception as e:
+        print_error(f"Erreur : {e}")
+        return
+
+    if "error" in result:
+        print_error(result["error"])
+        return
+
+    print("\n" + result.get("report", ""))
+
+    if result.get("recruited"):
+        print_success(f"Agent LLM simule {name} RECRUTE (ID: {result['agent_id']})")
+    else:
+        print_error(f"Agent LLM simule {name} REJETE")
 
 
 def _evaluate_llm_manual(manager: ManagerAlpha) -> None:
@@ -649,6 +729,51 @@ def manual_unblock(manager: ManagerAlpha) -> None:
 
 
 # =============================================================================
+# 13. STRESS-TEST AUTOMATISÉ
+# =============================================================================
+def run_stress(manager: ManagerAlpha) -> None:
+    print_header("STRESS-TEST AUTOMATISE — BATTERIE COMPLETE")
+    print_info("Ce test exécute automatiquement :")
+    print("    - Entretiens simulés (tous rôles x tous personas)")
+    print("    - Validation du corpus d'échecs (signaux/entretiens)")
+    print("    - Vérification des bordures (signaux/entretiens borderline)")
+    print("    - Stress KPI (blocage automatique et déblocage)")
+    print("    - Stress avertissements (3 = exclusion)")
+    print()
+
+    confirm = safe_input("Lancer le stress-test ? [O/N] : ").upper()
+    if confirm != "O":
+        print_info("Stress-test annulé.")
+        return
+
+    verbose = safe_input("Mode verbose ? [O/N] : ").upper() == "O"
+
+    print_info("Stress-test en cours...\n")
+
+    from stress_test import run_stress_test
+
+    def cli_callback(section, name, correct):
+        if correct:
+            print(f"  {Colors.GREEN}[OK]{Colors.END} {name}")
+        else:
+            print(f"  {Colors.RED}[!!]{Colors.END} {name}")
+
+    report = run_stress_test(verbose=verbose, callback=cli_callback if verbose else None)
+
+    print(report.format())
+
+    if report.total_fail == 0:
+        print_success(
+            f"STRESS-TEST CONFORME — {report.total_pass}/{report.total_expected} vérifications"
+        )
+    else:
+        print_error(
+            f"STRESS-TEST NON CONFORME — {report.total_fail} échecs "
+            f"sur {report.total_expected} vérifications"
+        )
+
+
+# =============================================================================
 # BOUCLE PRINCIPALE
 # =============================================================================
 def main():
@@ -713,6 +838,8 @@ def main():
                 print_error("Déblocage interdit en mode bypass.")
             else:
                 manual_unblock(manager)
+        elif choice == "13":
+            run_stress(manager)
         else:
             print_error("Choix invalide.")
 

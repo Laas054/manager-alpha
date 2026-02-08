@@ -15,6 +15,7 @@ from config import (
     ALPHA_LAW,
     ALPHA_ROLES,
     GOLDEN_RULES,
+    LLM_API_MODE,
     SIGNAL_STATUS_APPROVED,
     SIGNAL_STATUS_REJECTED,
 )
@@ -220,7 +221,7 @@ class ManagerAlpha:
         }
 
     # =========================================================================
-    # RECRUTEMENT — Entretien LLM LIVE (Anthropic Claude)
+    # RECRUTEMENT — Entretien LLM LIVE (Anthropic Claude) — STANDBY
     # =========================================================================
     @audit_required("recruit_agent")
     def evaluate_llm_agent_live(self, name: str, role: str, api_key: str,
@@ -230,16 +231,19 @@ class ManagerAlpha:
                                 context: dict | None = None) -> dict:
         """
         Entretien en temps réel avec un vrai agent Claude via API Anthropic.
-        Le Manager envoie les questions, Claude répond, le Manager évalue.
 
-        Args:
-            name: Nom de l'agent LLM
-            role: Rôle Alpha
-            api_key: Clé API Anthropic
-            model: Modèle Claude
-            persona: "disciplined" ou "naive"
-            callback: Fonction pour affichage temps réel
+        STATUT : STANDBY — Bloqué tant que LLM_API_MODE != "ACTIVE".
+        Utiliser evaluate_llm_agent_simulated() à la place.
         """
+        if LLM_API_MODE != "ACTIVE":
+            return {
+                "error": (
+                    f"API LLM en mode {LLM_API_MODE}. "
+                    "Entretien live désactivé. "
+                    "Utilisez le mode simulé (option 2a) ou le mode manuel (option 2b)."
+                ),
+            }
+
         if role not in ALPHA_ROLES:
             return {"error": f"Rôle invalide '{role}'"}
 
@@ -252,7 +256,6 @@ class ManagerAlpha:
             "STARTED"
         )
 
-        # Lancer l'entretien live
         evaluator = LLMEvaluator(api_provider="anthropic", api_key=api_key)
         result = evaluator.run_live_interview(
             api_key=api_key,
@@ -270,7 +273,6 @@ class ManagerAlpha:
 
         agent_id = self.registry.add(agent)
 
-        # Logger chaque réponse dans le decisions_log de l'agent
         for resp in result.get("responses", []):
             agent.log_decision({
                 "action": "interview_response",
@@ -286,6 +288,70 @@ class ManagerAlpha:
         self.audit.log(
             "evaluate_llm_live", agent_id,
             f"Modèle={model}, Score={result.get('score', 0)}, Passé={result.get('passed')}",
+            "RECRUITED" if result.get("passed") else "REJECTED"
+        )
+
+        return {
+            "agent_id": agent_id,
+            "result": result,
+            "recruited": result.get("passed", False),
+            "report": evaluator.get_live_report(result),
+        }
+
+    # =========================================================================
+    # RECRUTEMENT — Entretien LLM SIMULÉ (mode STANDBY)
+    # =========================================================================
+    @audit_required("recruit_agent")
+    def evaluate_llm_agent_simulated(self, name: str, role: str,
+                                      persona: str = "disciplined",
+                                      callback=None,
+                                      context: dict | None = None) -> dict:
+        """
+        Entretien avec un agent LLM simulé (réponses locales).
+        Fonctionne sans clé API. Même sévérité que le mode live.
+        """
+        if role not in ALPHA_ROLES:
+            return {"error": f"Rôle invalide '{role}'"}
+
+        agent = Agent(name, role)
+        agent.mode = "llm_simulated"
+
+        self.audit.log(
+            "start_simulated_interview", "ManagerAlpha",
+            f"Agent={name}, Rôle={role}, Persona={persona}, Mode=SIMULATED",
+            "STARTED"
+        )
+
+        evaluator = LLMEvaluator()
+        result = evaluator.run_simulated_interview(
+            role=role,
+            persona=persona,
+            callback=callback,
+        )
+
+        agent.interview_passed = result.get("passed", False)
+        agent.interview_score = result.get("score", 0)
+
+        if agent.interview_passed:
+            agent.activate()
+
+        agent_id = self.registry.add(agent)
+
+        for resp in result.get("responses", []):
+            agent.log_decision({
+                "action": "simulated_interview_response",
+                "question_id": resp["question_id"],
+                "response": resp["response"][:200],
+                "score": resp["score"],
+                "passed": resp["passed"],
+                "justification": f"Score {resp['score']}% sur question {resp['question_id']}",
+            })
+
+        self.registry._save()
+
+        self.audit.log(
+            "evaluate_llm_simulated", agent_id,
+            f"Persona={persona}, Score={result.get('score', 0)}, Passé={result.get('passed')}",
             "RECRUITED" if result.get("passed") else "REJECTED"
         )
 

@@ -227,3 +227,11 @@ BYPASS_FORBIDDEN_ACTIONS = [
     "exclude_agent",
     "disable_audit",
 ]
+
+# =============================================================================
+# MODE API LLM — STANDBY
+# =============================================================================
+# "STANDBY" = Aucun appel API réel. Évaluation locale uniquement.
+# "ACTIVE"  = Appels API autorisés (nécessite clé API valide).
+# Ce flag est le SEUL point de contrôle pour activer/désactiver les API LLM.
+LLM_API_MODE = "STANDBY"

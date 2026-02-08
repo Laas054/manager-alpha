@@ -1,7 +1,10 @@
 """
 LLM EVALUATOR — Évaluation des agents LLM.
 Sévérité >= humains. Tolérance zéro. Score minimum 90%.
-Intégration Anthropic Claude API.
+
+STATUT API : STANDBY — Aucun appel API réel.
+Toute évaluation LLM est basée sur règles locales.
+Hooks prévus pour activation future des API (sans exécution).
 """
 
 import json
@@ -14,6 +17,7 @@ from config import (
     FORBIDDEN_WORDS_LLM,
     GOLDEN_RULES,
     INTERVIEW_PASS_SCORE_LLM,
+    LLM_API_MODE,
 )
 from interview import InterviewEvaluator, MANDATORY_QUESTIONS
 
@@ -86,10 +90,19 @@ class AnthropicAgent:
     """
     Agent LLM basé sur l'API Anthropic Claude.
     Représente un candidat qui passe l'entretien Alpha.
+
+    STATUT : STANDBY — Cette classe ne peut être instanciée que si
+    LLM_API_MODE == "ACTIVE" dans config.py.
     """
 
     def __init__(self, api_key: str, role: str, model: str = "claude-sonnet-4-5-20250929",
                  persona: str = "disciplined"):
+        if LLM_API_MODE != "ACTIVE":
+            raise RuntimeError(
+                f"API LLM en mode {LLM_API_MODE}. "
+                "AnthropicAgent ne peut pas être instancié. "
+                "Changez LLM_API_MODE à 'ACTIVE' dans config.py pour activer."
+            )
         self.api_key = api_key
         self.role = role
         self.model = model
@@ -154,6 +167,90 @@ class AnthropicAgent:
     def reset(self) -> None:
         """Réinitialise l'historique de conversation."""
         self.conversation_history = []
+
+
+# =============================================================================
+# AGENT LLM SIMULÉ (mode STANDBY — pas d'appel API)
+# =============================================================================
+
+from simulated_profiles import (
+    ALL_PERSONAS,
+    PROFILE_METADATA,
+    VERBAL_TICS,
+    get_responses,
+)
+
+
+class SimulatedLLMAgent:
+    """
+    Agent LLM simulé — génère des réponses pré-calibrées localement.
+    Ne fait AUCUN appel API. Fonctionne sans clé API.
+
+    Supporte 4 personas (disciplined, mediocre, overconfident, naive)
+    avec des réponses spécifiques à chaque rôle Alpha.
+    """
+
+    def __init__(self, role: str, persona: str = "disciplined"):
+        self.role = role
+        self.persona = persona if persona in ALL_PERSONAS else "disciplined"
+        self.conversation_history: list[dict] = []
+        self._question_counter = 0
+        self._responses = get_responses(role, self.persona)
+        self.profile_info = PROFILE_METADATA.get(self.persona, {})
+        self.verbal_tics = VERBAL_TICS.get(self.persona, [])
+
+    def ask(self, question: str, max_sentences: int = 4) -> str:
+        """Retourne une réponse simulée basée sur le rôle et le persona."""
+        self._question_counter += 1
+
+        qid = self._identify_question(question)
+        answer = self._responses.get(qid, self._responses.get("Q1", "Réponse simulée."))
+
+        self.conversation_history.append({
+            "role": "user",
+            "content": question,
+        })
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": answer,
+        })
+
+        return answer
+
+    def _identify_question(self, question: str) -> str:
+        """Identifie le numéro de question à partir du contenu."""
+        q_lower = question.lower()
+
+        patterns = {
+            "Q1": ["marché tradable", "signal alpha", "différence"],
+            "Q2": ["edge brut", "4%", "edge net"],
+            "Q3": ["temps", "résolution", "sous-estimé"],
+            "Q4": ["rater", "manquer", "opportunité", "mauvais trade", "faute"],
+            "Q5": ["brillant", "indiscipliné", "intelligent", "conservé"],
+            "Q6": ["edge exceptionnel", "8%", "domine", "approuver immédiatement"],
+            "Q7": ["feeling", "collègue", "intuition", "impression"],
+        }
+
+        for qid, keywords in patterns.items():
+            if any(kw in q_lower for kw in keywords):
+                return qid
+
+        return f"Q{min(self._question_counter, 7)}"
+
+    def reset(self) -> None:
+        """Réinitialise l'historique."""
+        self.conversation_history = []
+        self._question_counter = 0
+
+    def get_profile_summary(self) -> dict:
+        """Retourne un résumé du profil de l'agent simulé."""
+        return {
+            "role": self.role,
+            "persona": self.persona,
+            "profile_info": self.profile_info,
+            "verbal_tics": self.verbal_tics,
+            "questions_answered": self._question_counter,
+        }
 
 
 class LLMEvaluator:
@@ -243,7 +340,7 @@ class LLMEvaluator:
         return {"violations": violations}
 
     # =========================================================================
-    # ENTRETIEN LIVE AVEC AGENT ANTHROPIC
+    # ENTRETIEN LIVE AVEC AGENT ANTHROPIC (STANDBY)
     # =========================================================================
     def run_live_interview(self, api_key: str, role: str,
                            model: str = "claude-sonnet-4-5-20250929",
@@ -252,17 +349,24 @@ class LLMEvaluator:
         """
         Entretien en temps réel avec un agent Claude via API Anthropic.
 
-        Args:
-            api_key: Clé API Anthropic
-            role: Rôle Alpha du candidat
-            model: Modèle Claude à utiliser
-            persona: "disciplined" (connaît les règles) ou "naive" (ne les connaît pas)
-            callback: Fonction optionnelle appelée après chaque question
-                      callback(question_id, question_text, response, evaluation)
-
-        Returns:
-            Résultat complet de l'entretien
+        STATUT : STANDBY — Bloqué tant que LLM_API_MODE != "ACTIVE".
+        Utiliser run_simulated_interview() à la place.
         """
+        if LLM_API_MODE != "ACTIVE":
+            return {
+                "passed": False,
+                "score": 0,
+                "reason": (
+                    f"API LLM en mode {LLM_API_MODE}. "
+                    "Entretien live désactivé. "
+                    "Utilisez le mode simulé ou changez LLM_API_MODE à 'ACTIVE'."
+                ),
+                "details": [],
+                "responses": [],
+                "model": model,
+                "persona": persona,
+            }
+
         agent = AnthropicAgent(
             api_key=api_key,
             role=role,
@@ -335,6 +439,76 @@ class LLMEvaluator:
             "responses": responses_log,
             "model": model,
             "persona": persona,
+        }
+
+    # =========================================================================
+    # ENTRETIEN SIMULÉ (mode STANDBY — aucun appel API)
+    # =========================================================================
+    def run_simulated_interview(self, role: str,
+                                 persona: str = "disciplined",
+                                 callback=None) -> dict:
+        """
+        Entretien avec un agent LLM simulé (réponses locales pré-calibrées).
+        Fonctionne sans clé API. Évaluation identique au mode live.
+
+        Personas disponibles : disciplined, mediocre, overconfident, naive.
+        Réponses spécifiques à chaque rôle Alpha.
+        """
+        agent = SimulatedLLMAgent(role=role, persona=persona)
+
+        self.results = []
+        self.evaluator = InterviewEvaluator(is_llm=True)
+        responses_log: list[dict] = []
+
+        for question in MANDATORY_QUESTIONS:
+            qid = question["id"]
+            max_sentences = question.get("max_sentences", 4)
+
+            response = agent.ask(question["question"], max_sentences)
+
+            evaluation = self.evaluate_local(question, response)
+
+            responses_log.append({
+                "question_id": qid,
+                "question": question["question"],
+                "response": response,
+                "score": evaluation["score"],
+                "passed": evaluation["passed"],
+                "elimination": evaluation.get("elimination", False),
+                "reasons": evaluation.get("reasons", []),
+            })
+
+            if callback:
+                callback(qid, question["question"], response, evaluation)
+
+            # Tolérance zéro LLM
+            if not evaluation["passed"] or evaluation.get("elimination"):
+                return {
+                    "passed": False,
+                    "score": evaluation["score"],
+                    "reason": f"Échec question {qid} — LLM tolérance zéro — REJET",
+                    "eliminated_at": qid,
+                    "details": self.results,
+                    "responses": responses_log,
+                    "model": "simulated",
+                    "persona": persona,
+                    "role": role,
+                    "profile": agent.get_profile_summary(),
+                }
+
+        avg_score = sum(r["score"] for r in self.results) / len(self.results)
+
+        return {
+            "passed": avg_score >= self.pass_score,
+            "score": round(avg_score, 1),
+            "questions_total": len(self.results),
+            "questions_passed": sum(1 for r in self.results if r["passed"]),
+            "details": self.results,
+            "responses": responses_log,
+            "model": "simulated",
+            "persona": persona,
+            "role": role,
+            "profile": agent.get_profile_summary(),
         }
 
     # =========================================================================

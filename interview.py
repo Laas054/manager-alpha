@@ -188,29 +188,29 @@ class InterviewEvaluator:
         score = 0
 
         # =====================================================================
-        # CRITÈRE 1 : Présence des mots-clés requis (40 points)
+        # CRITÈRE 1 : Présence des mots-clés requis (45 points)
         # =====================================================================
         required = question.get("keywords_required", [])
         response_norm_kw = _strip_accents(response_lower)
         found = [kw for kw in required if _strip_accents(kw.lower()) in response_norm_kw]
         if required:
             keyword_ratio = len(found) / len(required)
-            keyword_score = int(keyword_ratio * 40)
+            keyword_score = int(keyword_ratio * 45)
             score += keyword_score
             if keyword_ratio < 0.5:
                 result["reasons"].append(
                     f"Mots-clés insuffisants : {len(found)}/{len(required)} trouvés"
                 )
         else:
-            score += 40
+            score += 45
 
         # =====================================================================
-        # CRITÈRE 2 : Respect du nombre max de phrases (20 points)
+        # CRITÈRE 2 : Respect du nombre max de phrases (25 points)
         # =====================================================================
         max_sentences = question.get("max_sentences", 5)
         sentences = [s.strip() for s in re.split(r'[.!?]+', response) if s.strip()]
         if len(sentences) <= max_sentences:
-            score += 20
+            score += 25
         else:
             result["reasons"].append(
                 f"Trop de phrases : {len(sentences)} > {max_sentences}"

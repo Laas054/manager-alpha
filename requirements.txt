@@ -1,5 +1,6 @@
 # Manager IA Alpha — Dépendances
-# Python 3.10+ requis (bibliothèque standard + anthropic)
+# Python 3.10+ requis (bibliothèque standard uniquement en mode STANDBY)
 
-# SDK Anthropic pour les agents LLM live
-anthropic>=0.70.0
+# SDK Anthropic pour les agents LLM live (OPTIONNEL — mode STANDBY actif)
+# Décommenter la ligne suivante uniquement si LLM_API_MODE = "ACTIVE" dans config.py
+# anthropic>=0.70.0

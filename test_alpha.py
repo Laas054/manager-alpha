@@ -45,7 +45,8 @@ from signal_alpha import SignalAlpha
 from audit import AuditSystem, AuditViolation, audit_required
 from interview import InterviewEvaluator, InterviewSession, MANDATORY_QUESTIONS
 from kpi import KPITracker
-from llm_evaluator import LLMEvaluator
+from llm_evaluator import LLMEvaluator, SimulatedLLMAgent, AnthropicAgent
+from config import LLM_API_MODE
 from manager import ManagerAlpha
 
 test("Tous les imports reussis", True)
@@ -472,6 +473,52 @@ api_result = llm_eval4.evaluate_via_api(q_test, llm_callable=None)
 test("LLM API sans callable = erreur", "error" in api_result)
 
 # =================================================================
+print("\n--- 8b. MODE STANDBY LLM ---")
+# =================================================================
+
+# LLM_API_MODE est STANDBY
+test("STANDBY: LLM_API_MODE = STANDBY", LLM_API_MODE == "STANDBY")
+
+# AnthropicAgent bloque en STANDBY
+try:
+    AnthropicAgent(api_key="fake", role="DataEngineer")
+    test("STANDBY: AnthropicAgent bloque en STANDBY", False)
+except RuntimeError as e:
+    test("STANDBY: AnthropicAgent bloque en STANDBY", "STANDBY" in str(e))
+
+# SimulatedLLMAgent fonctionne sans API
+sim_agent = SimulatedLLMAgent(role="DataEngineer", persona="disciplined")
+resp = sim_agent.ask("Quelle est la difference entre un marche tradable et un signal Alpha?")
+test("STANDBY: SimulatedLLMAgent repond", len(resp) > 0)
+test("STANDBY: Reponse contient signal/analyse", "signal" in resp.lower() or "analyse" in resp.lower())
+
+# SimulatedLLMAgent naive
+sim_naive = SimulatedLLMAgent(role="DataEngineer", persona="naive")
+resp_naive = sim_naive.ask("Quelle est la difference entre un marche tradable et un signal Alpha?")
+test("STANDBY: SimulatedLLMAgent naive repond differemment", resp_naive != resp)
+
+# Entretien simule complet - disciplined
+llm_eval_sim = LLMEvaluator()
+sim_result = llm_eval_sim.run_simulated_interview(role="DataEngineer", persona="disciplined")
+test("STANDBY: Entretien simule discipline termine", "score" in sim_result)
+test("STANDBY: Entretien simule discipline model=simulated", sim_result.get("model") == "simulated")
+
+# Entretien simule - naive (doit echouer)
+llm_eval_naive = LLMEvaluator()
+sim_naive_result = llm_eval_naive.run_simulated_interview(role="AlphaResearch", persona="naive")
+test("STANDBY: Entretien simule naive rejete", not sim_naive_result.get("passed"))
+
+# run_live_interview bloque en STANDBY
+llm_eval_live = LLMEvaluator()
+live_result = llm_eval_live.run_live_interview(api_key="fake", role="DataEngineer")
+test("STANDBY: run_live_interview bloque", not live_result.get("passed"))
+test("STANDBY: run_live_interview cite STANDBY", "STANDBY" in live_result.get("reason", ""))
+
+# Rapport simule
+sim_report = llm_eval_sim.get_live_report(sim_result)
+test("STANDBY: Rapport simule genere", "RAPPORT" in sim_report)
+
+# =================================================================
 print("\n--- 9. MANAGER ALPHA (INTEGRATION) ---")
 # =================================================================
 
@@ -592,12 +639,25 @@ if agents:
     w = manager.warn_agent(active_id, "Test avertissement")
     test("Avertissement emis", "warning_result" in w)
 
+# STANDBY: evaluate_llm_agent_live bloque en mode STANDBY
+live_blocked = manager.evaluate_llm_agent_live("TestLive", "DataEngineer", api_key="fake")
+test("STANDBY: evaluate_llm_agent_live bloque via Manager", "error" in live_blocked)
+test("STANDBY: message cite STANDBY", "STANDBY" in live_blocked.get("error", ""))
+
+# STANDBY: evaluate_llm_agent_simulated fonctionne
+sim_mgr_result = manager.evaluate_llm_agent_simulated("SimBot", "Validation", persona="disciplined")
+test("STANDBY: evaluate_llm_agent_simulated OK", "agent_id" in sim_mgr_result)
+test("STANDBY: SimBot dans le registre", any(
+    a["name"] == "SimBot" for a in manager.list_agents()
+))
+
 # CONDITION 2 : @audit_required sur methodes critiques
 import inspect
 from audit import audit_required as ar_decorator
 manager_methods = [
     "start_interview", "evaluate_llm_agent", "submit_signal",
     "audit_agent", "review_all_agents", "warn_agent",
+    "evaluate_llm_agent_simulated",
 ]
 for method_name in manager_methods:
     method = getattr(manager, method_name)
