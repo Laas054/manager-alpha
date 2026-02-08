@@ -1,0 +1,17 @@
+{
+  "decision_id": "AD-SIG-001-20260208120000",
+  "market": "ETH-PERP",
+  "status": "APPROVED",
+  "confidence_level": "HIGH",
+  "edge_net": 2.5,
+  "constraints": {
+    "max_size": 500000,
+    "urgency": "HIGH",
+    "expiry": "2026-02-09T00:00:00"
+  },
+  "rules_passed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "rules_failed": [],
+  "audit_ref": "[2026-02-08T12:00:00]-SIG-001",
+  "schema_version": "1.0.0",
+  "generated_at": "2026-02-08T12:00:00"
+}

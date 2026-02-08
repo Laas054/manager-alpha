@@ -225,6 +225,100 @@ display = sig2.format_display()
 test("Format affichage contient SIGNAL ALPHA", "SIGNAL ALPHA" in display)
 
 # =================================================================
+print("\n--- 4b. ALPHA DECISION ---")
+# =================================================================
+from alpha_interface.alpha_decision import AlphaDecisionBuilder, validate_against_schema
+
+# AlphaDecision depuis un signal valide
+ad_valid = AlphaDecisionBuilder(
+    signal_data={
+        "signal_id": "S100", "market": "ETH-PERP", "type": "ARBITRAGE",
+        "edge_net": "2.5", "volume": "500000", "spread": "0.05",
+        "time_to_resolution": "12", "risks": "Risque controle.",
+        "status": "APPROVED", "comment": "Edge volume spread temps risque.",
+    },
+    validation={"valid": True, "errors": [], "status": "APPROVED", "comment": "OK"},
+    clarity_score=100.0,
+    kpi_blocked=False,
+).build()
+test("AlphaDecision decision_id commence par AD-", ad_valid["decision_id"].startswith("AD-S100-"))
+test("AlphaDecision status APPROVED", ad_valid["status"] == "APPROVED")
+test("AlphaDecision confidence HIGH a 100", ad_valid["confidence_level"] == "HIGH")
+test("AlphaDecision edge_net = 2.5", ad_valid["edge_net"] == 2.5)
+test("AlphaDecision rules_failed vide", len(ad_valid["rules_failed"]) == 0)
+test("AlphaDecision rules_passed = 10 regles", len(ad_valid["rules_passed"]) == 10)
+test("AlphaDecision constraints.max_size present", "max_size" in ad_valid["constraints"])
+test("AlphaDecision constraints.urgency = HIGH", ad_valid["constraints"]["urgency"] == "HIGH")
+test("AlphaDecision audit_ref contient signal_id", "S100" in ad_valid["audit_ref"])
+test("AlphaDecision schema_version = 1.0.0", ad_valid["schema_version"] == "1.0.0")
+test("AlphaDecision generated_at present", "generated_at" in ad_valid)
+
+# Validation du schema
+sv = validate_against_schema(ad_valid)
+test("AlphaDecision schema valide", sv["valid"])
+
+# AlphaDecision depuis un signal rejete (Regle 4 + Regle 7)
+ad_bad = AlphaDecisionBuilder(
+    signal_data={
+        "signal_id": "S101", "market": "BTC", "type": "PROBA",
+        "edge_net": "0.1", "volume": "1000", "spread": "0.01",
+        "time_to_resolution": "2", "risks": "ok",
+        "status": "APPROVED", "comment": "je pense que c est bon",
+    },
+    validation={
+        "valid": False,
+        "errors": [
+            "REJET \u2014 edge_net (0.1%) inf\u00e9rieur au minimum (0.5%)",
+            "REJET \u2014 Langage flou d\u00e9tect\u00e9 : 'je pense' (R\u00e8gle 7)",
+        ],
+        "status": "REJECTED",
+        "comment": "Validation \u00e9chou\u00e9e",
+    },
+    clarity_score=100.0,
+    kpi_blocked=False,
+).build()
+test("AlphaDecision rejected status", ad_bad["status"] == "REJECTED")
+test("AlphaDecision Rule 4 dans rules_failed", 4 in ad_bad["rules_failed"])
+test("AlphaDecision Rule 7 dans rules_failed", 7 in ad_bad["rules_failed"])
+test("AlphaDecision Rule 4 absent de rules_passed", 4 not in ad_bad["rules_passed"])
+
+# Niveaux de confiance
+ad_med = AlphaDecisionBuilder(
+    signal_data={"signal_id": "S102", "market": "X"},
+    validation={"valid": False, "errors": [], "status": "REJECTED", "comment": ""},
+    clarity_score=60.0,
+    kpi_blocked=False,
+).build()
+test("AlphaDecision confidence MEDIUM a 60", ad_med["confidence_level"] == "MEDIUM")
+
+ad_low = AlphaDecisionBuilder(
+    signal_data={"signal_id": "S103", "market": "X"},
+    validation={"valid": False, "errors": [], "status": "REJECTED", "comment": ""},
+    clarity_score=30.0,
+    kpi_blocked=False,
+).build()
+test("AlphaDecision confidence LOW a 30", ad_low["confidence_level"] == "LOW")
+
+# KPI bloque implique Rule 6
+ad_kpi = AlphaDecisionBuilder(
+    signal_data={"signal_id": "S104", "market": "X"},
+    validation={"valid": False, "errors": [], "status": "REJECTED", "comment": ""},
+    clarity_score=100.0,
+    kpi_blocked=True,
+).build()
+test("AlphaDecision KPI bloque => Rule 6 failed", 6 in ad_kpi["rules_failed"])
+
+# Niveaux d'urgence
+for ttr, expected_urg in [("4", "CRITICAL"), ("12", "HIGH"), ("36", "MEDIUM"), ("60", "LOW")]:
+    ad_u = AlphaDecisionBuilder(
+        signal_data={"signal_id": "U", "market": "X", "time_to_resolution": ttr},
+        validation={"valid": True, "errors": [], "status": "APPROVED", "comment": ""},
+        clarity_score=100.0,
+        kpi_blocked=False,
+    ).build()
+    test(f"AlphaDecision urgency {expected_urg} a {ttr}h", ad_u["constraints"]["urgency"] == expected_urg)
+
+# =================================================================
 print("\n--- 5. AUDIT SYSTEM ---")
 # =================================================================
 audit = AuditSystem()
@@ -593,6 +687,14 @@ if agents:
     }
     sr = manager.submit_signal(active_id, valid_signal)
     test("Signal valide soumis", sr.get("validation", {}).get("valid", False))
+
+    # AlphaDecision integration
+    test("AlphaDecision present dans resultat", "alpha_decision" in sr)
+    ad_integ = sr.get("alpha_decision", {})
+    test("AlphaDecision integration status APPROVED", ad_integ.get("status") == "APPROVED")
+    test("AlphaDecision integration decision_id", ad_integ.get("decision_id", "").startswith("AD-SIG-001-"))
+    test("AlphaDecision integration schema_version", ad_integ.get("schema_version") == "1.0.0")
+    test("AlphaDecision integration rules_failed vide", ad_integ.get("rules_failed") == [])
 
     # Signal invalide (mot interdit)
     bad_signal = {

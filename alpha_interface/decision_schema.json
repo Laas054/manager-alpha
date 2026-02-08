@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manager-alpha.local/schemas/alpha-decision-v1.json",
+  "title": "AlphaDecision",
+  "description": "Format standardise pour une decision Alpha. Genere automatiquement par le Manager IA Alpha apres chaque appel a submit_signal(). Ce format est la SEULE sortie autorisee d'Alpha vers l'exterieur.",
+  "type": "object",
+  "required": [
+    "decision_id",
+    "market",
+    "status",
+    "confidence_level",
+    "edge_net",
+    "constraints",
+    "rules_passed",
+    "rules_failed",
+    "audit_ref"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "pattern": "^AD-.*",
+      "description": "Identifiant unique de la decision (AD-{signal_id}-{timestamp})"
+    },
+    "market": {
+      "type": "string",
+      "description": "Marche concerne"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["REJECTED", "SURVEILLANCE", "APPROVED"],
+      "description": "Statut final de la decision. Aucune nuance intermediaire."
+    },
+    "confidence_level": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH"],
+      "description": "Niveau de confiance derive de la clarte du signal"
+    },
+    "edge_net": {
+      "type": "number",
+      "description": "Edge net en pourcentage"
+    },
+    "constraints": {
+      "type": "object",
+      "required": ["max_size", "urgency", "expiry"],
+      "properties": {
+        "max_size": {
+          "type": "number",
+          "description": "Taille maximale derivee du volume du signal"
+        },
+        "urgency": {
+          "type": "string",
+          "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+          "description": "Niveau d'urgence derive de time_to_resolution"
+        },
+        "expiry": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date d'expiration ISO8601 (now + time_to_resolution)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rules_passed": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      },
+      "description": "Numeros des Regles d'Or passees avec succes"
+    },
+    "rules_failed": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10
+      },
+      "description": "Numeros des Regles d'Or echouees"
+    },
+    "audit_ref": {
+      "type": "string",
+      "description": "Reference au journal d'audit ([timestamp]-signal_id)"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Version du schema AlphaDecision"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Horodatage de generation ISO8601"
+    }
+  },
+  "additionalProperties": false
+}

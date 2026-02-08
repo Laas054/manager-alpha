@@ -1,0 +1,17 @@
+{
+  "decision_id": "AD-SIG-002-20260208130000",
+  "market": "BTC-PERP",
+  "status": "REJECTED",
+  "confidence_level": "HIGH",
+  "edge_net": 0.1,
+  "constraints": {
+    "max_size": 100000,
+    "urgency": "CRITICAL",
+    "expiry": "2026-02-08T19:00:00"
+  },
+  "rules_passed": [1, 2, 3, 5, 6, 7, 8, 9, 10],
+  "rules_failed": [4],
+  "audit_ref": "[2026-02-08T13:00:00]-SIG-002",
+  "schema_version": "1.0.0",
+  "generated_at": "2026-02-08T13:00:00"
+}

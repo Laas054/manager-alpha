@@ -235,3 +235,9 @@ BYPASS_FORBIDDEN_ACTIONS = [
 # "ACTIVE"  = Appels API autorisés (nécessite clé API valide).
 # Ce flag est le SEUL point de contrôle pour activer/désactiver les API LLM.
 LLM_API_MODE = "STANDBY"
+
+# =============================================================================
+# ALPHA INTERFACE — Couche d'interoperabilite
+# =============================================================================
+ALPHA_INTERFACE_VERSION = "1.0.0"
+ALPHA_INTERFACE_SCHEMA = "alpha_interface/decision_schema.json"

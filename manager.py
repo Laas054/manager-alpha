@@ -22,6 +22,7 @@ from config import (
 from interview import InterviewSession
 from kpi import KPITracker
 from llm_evaluator import LLMEvaluator
+from alpha_interface.alpha_decision import AlphaDecisionBuilder
 from signal_alpha import SignalAlpha
 
 
@@ -437,11 +438,26 @@ class ManagerAlpha:
             final_status
         )
 
+        # Construire l'AlphaDecision (format de sortie unique)
+        alpha_decision = AlphaDecisionBuilder(
+            signal_data=signal_data,
+            validation=validation,
+            clarity_score=clarity_score,
+            kpi_blocked=self.kpi.is_approval_blocked(),
+        ).build()
+
+        self.audit.log(
+            "alpha_decision_generated", agent_id,
+            f"DecisionID={alpha_decision['decision_id']}, Status={alpha_decision['status']}",
+            alpha_decision["status"]
+        )
+
         return {
             "validation": validation,
             "signal_display": signal.format_display(),
             "clarity_score": clarity_score,
             "kpi_blocked": self.kpi.is_approval_blocked(),
+            "alpha_decision": alpha_decision,
         }
 
     def _calculate_clarity(self, signal_data: dict) -> float:
