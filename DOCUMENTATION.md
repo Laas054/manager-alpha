@@ -1,9 +1,10 @@
 # DOCUMENTATION COMPLETE — MANAGER IA ALPHA
 
-> **Version** : 1.0
+> **Version** : 1.1
 > **Python** : 3.10+
 > **Statut API LLM** : STANDBY
-> **Tests** : 142 unitaires + 59 stress-test = TOUS PASS
+> **Alpha Interface** : v1.0.0 (AlphaDecision)
+> **Tests** : 170 unitaires + 59 stress-test = TOUS PASS
 > **Repository** : github.com/Laas054/manager-alpha
 
 ---
@@ -33,6 +34,7 @@
 21. [Tests et validation](#21-tests-et-validation)
 22. [Tableau des seuils et constantes](#22-tableau-des-seuils-et-constantes)
 23. [Mots interdits](#23-mots-interdits)
+24. [Alpha Interface — Couche d'interoperabilite](#24-alpha-interface--couche-dinteroperabilite)
 
 ---
 
@@ -61,6 +63,7 @@ Le **Manager IA Alpha** est un systeme de gestion d'equipe de trading algorithmi
 | Systeme d'avertissements | 3 avertissements = exclusion automatique |
 | Suivi KPI | Blocage automatique si taux approbation > 5% |
 | Stress-test | Batterie de 59 verifications automatisees |
+| Alpha Interface | Format de sortie AlphaDecision (schema JSON, contrat immutable, validation) |
 
 ---
 
@@ -82,8 +85,18 @@ C:\Users\Annick\manager-alpha\
 |-- simulated_profiles.py     # Profils simules (4 personas x 5 roles)
 |-- failure_corpus.py         # Corpus de tests (signaux + entretiens echoues)
 |-- stress_test.py            # Tests de robustesse automatises
-|-- test_alpha.py             # 142 tests unitaires
+|-- test_alpha.py             # 170 tests unitaires
 |-- main.py                   # Interface CLI interactive (13 options)
+|
+|-- alpha_interface/
+|   |-- __init__.py           # Package exports (AlphaDecisionBuilder, validate_against_schema)
+|   |-- alpha_decision.py     # Classe AlphaDecisionBuilder + validation structurelle
+|   |-- decision_schema.json  # JSON Schema AlphaDecision v1.0.0
+|   |-- rules_contract.md     # Contrat de regles IMMUTABLE et versionne
+|   |-- examples/
+|       |-- approved.json     # Exemple AlphaDecision APPROVED
+|       |-- rejected.json     # Exemple AlphaDecision REJECTED
+|       |-- surveillance.json # Exemple AlphaDecision SURVEILLANCE
 |
 |-- data/
 |   |-- agents.json           # Registre persistant des agents
@@ -96,7 +109,7 @@ C:\Users\Annick\manager-alpha\
 |-- .gitignore                # Fichiers exclus du versionnement
 ```
 
-### Organisation en 3 couches
+### Organisation en 4 couches
 
 **Couche Core (5 modules)** — Logique metier fondamentale :
 - `config.py` — Regles, seuils, constantes
@@ -104,6 +117,9 @@ C:\Users\Annick\manager-alpha\
 - `audit.py` — Systeme d'audit (autorite superieure)
 - `signal_alpha.py` — Moteur de validation des signaux
 - `manager.py` — Orchestrateur central
+
+**Couche Interoperabilite (1 package)** — Sortie unique d'Alpha :
+- `alpha_interface/` — Format AlphaDecision, schema JSON, contrat de regles, validation structurelle
 
 **Couche Support (5 modules)** — Fonctionnalites complementaires :
 - `interview.py` — Systeme d'entretien et scoring
@@ -128,6 +144,7 @@ main.py
   |     |-- kpi.py -------------> config.py
   |     |-- llm_evaluator.py ---> config.py, interview.py, simulated_profiles.py
   |     |-- signal_alpha.py ----> config.py
+  |     |-- alpha_interface/ ---> (AlphaDecisionBuilder)
   |-- audit.py (AuditViolation)
   |-- config.py
 
@@ -141,6 +158,7 @@ stress_test.py
 
 test_alpha.py
   |-- tous les modules
+  |-- alpha_interface/ (AlphaDecisionBuilder, validate_against_schema)
 ```
 
 ### Fichiers de donnees
@@ -207,6 +225,8 @@ Ces regles sont **non negociables**. Elles sont definies dans `config.py` sous `
 | `SIGNAL_REQUIRED_FIELDS` | `list[str]` | 10 champs | Champs obligatoires d'un signal |
 | `EQUIVALENT_METRICS` | `list[str]` | 5 metriques | edge_net, volume, spread, time_to_resolution, risks |
 | `LLM_API_MODE` | `str` | "STANDBY" | Mode de l'API LLM (STANDBY ou ACTIVE) |
+| `ALPHA_INTERFACE_VERSION` | `str` | "1.0.0" | Version du format AlphaDecision |
+| `ALPHA_INTERFACE_SCHEMA` | `str` | "alpha_interface/decision_schema.json" | Chemin du schema JSON |
 
 ### Seuils
 
@@ -738,7 +758,7 @@ Initialise :
 
 | Methode | Decorateur | Description |
 |---|---|---|
-| `submit_signal(agent_id, signal_data, context)` | `@audit_required("submit_signal")` | Valide un signal Alpha. Verifie : agent actif, validation signal, langage, blocage KPI. Enregistre les KPIs. |
+| `submit_signal(agent_id, signal_data, context)` | `@audit_required("submit_signal")` | Valide un signal Alpha. Verifie : agent actif, validation signal, langage, blocage KPI. Enregistre les KPIs. **Genere automatiquement un AlphaDecision** via `AlphaDecisionBuilder`. |
 
 **Methodes d'audit** :
 
@@ -930,7 +950,7 @@ python stress_test.py --verbose
 
 ## 15. MODULE `test_alpha.py`
 
-**Role** : 142 tests unitaires couvrant tous les modules du systeme.
+**Role** : 170 tests unitaires couvrant tous les modules du systeme.
 
 ### Sections de test
 
@@ -940,14 +960,15 @@ python stress_test.py --verbose
 | 2. CONFIG | 10 | 10 regles, mots interdits, questions, roles, types, champs, seuils |
 | 3. AGENT | 18 | Creation, activation, avertissements (3=exclusion), serialisation, decisions |
 | 4. SIGNAL ALPHA | 13 | Champs manquants, mots interdits, types, edge, temps, dominance, risques |
+| 4b. ALPHA DECISION | 23 | Builder (decision_id, status, confidence, rules, urgency), validation schema |
 | 5. AUDIT SYSTEM | 23 | Langage, regles, bypass, decisions, journal append-only, verrouillages |
 | 6. INTERVIEW | 12 | Bonnes reponses, elimination, pieges Q5/Q6/Q7, tolerance zero LLM |
 | 7. KPI | 13 | Taux, blocage, deblocage, rapport, violations verbales |
 | 8. LLM EVALUATOR | 6 | Evaluation locale, seuil 90%, hedging, API sans callable |
 | 8b. MODE STANDBY | 11 | STANDBY actif, AnthropicAgent bloque, SimulatedLLMAgent OK, entretiens |
-| 9. MANAGER ALPHA | 30 | Integration complete : identite, entretien, signal, audit, revue, bypass, avertissements, STANDBY, decorateurs |
+| 9. MANAGER ALPHA | 35 | Integration complete : identite, entretien, signal, audit, revue, bypass, avertissements, STANDBY, decorateurs, alpha_decision |
 | 10. TESTS DE SECURITE | 5 | Absence de methodes dangereuses (disable_audit, delete_log), KPI blocage |
-| **TOTAL** | **142** | |
+| **TOTAL** | **170** | |
 
 **Execution** :
 ```bash
@@ -1128,7 +1149,20 @@ Enregistrement KPI (signal + marche)
 Log decision de l'agent + journal d'audit
   |
   v
-Resultat : APPROVED / SURVEILLANCE / REJECTED
+AlphaDecisionBuilder.build() :
+  |-- Genere decision_id (AD-{signal_id}-{timestamp})
+  |-- Determine status (APPROVED/SURVEILLANCE/REJECTED)
+  |-- Calcule confidence_level (clarity_score: <50=LOW, 50+=MEDIUM, 80+=HIGH)
+  |-- Construit constraints (max_size, urgency, expiry)
+  |-- Extrait rules_failed par regex sur les erreurs
+  |-- Calcule rules_passed = {1..10} - rules_failed
+  |-- Valide contre le schema
+  |
+  v
+Log audit : alpha_decision_generated
+  |
+  v
+Resultat : APPROVED / SURVEILLANCE / REJECTED + alpha_decision
 ```
 
 ### Flux Audit
@@ -1375,11 +1409,11 @@ python test_alpha.py
 
 **Resultat attendu** :
 ```
-RESULTATS: 142 PASS / 0 FAIL / 142 TOTAL
+RESULTATS: 170 PASS / 0 FAIL / 170 TOTAL
 TOUS LES TESTS PASSES — Systeme Alpha CONFORME.
 ```
 
-**Couverture** : 10 sections couvrant imports, config, agent, signal, audit, interview, KPI, LLM evaluator, STANDBY, manager et securite.
+**Couverture** : 12 sections couvrant imports, config, agent, signal, alpha_decision, audit, interview, KPI, LLM evaluator, STANDBY, manager et securite.
 
 ### Stress-test (`stress_test.py`)
 
@@ -1474,5 +1508,221 @@ RESULTAT FINAL : CONFORME
 
 ---
 
+## 24. ALPHA INTERFACE — COUCHE D'INTEROPERABILITE
+
+### Principe
+
+**Alpha est un fournisseur de decisions, pas un moteur partage.** Aucune equipe externe (Beta, Gamma, Delta) n'accede au code interne Alpha. Toute interaction passe par une interface contractuelle IMMUTABLE : le format **AlphaDecision**.
+
+Chaque decision validee par `submit_signal()` produit automatiquement un AlphaDecision au format standardise.
+
+### Package `alpha_interface/`
+
+#### `__init__.py`
+
+Exporte les deux elements publics du package :
+```python
+from alpha_interface.alpha_decision import AlphaDecisionBuilder, validate_against_schema
+__all__ = ["AlphaDecisionBuilder", "validate_against_schema"]
+```
+
+#### `decision_schema.json` — Schema JSON AlphaDecision v1.0.0
+
+Schema JSON (draft 2020-12) definissant le format contractuel. `additionalProperties: false` sur la racine et les contraintes.
+
+| Champ | Type | Description |
+|---|---|---|
+| `decision_id` | `string` | Format `"AD-{signal_id}-{timestamp}"` |
+| `market` | `string` | Marche concerne |
+| `status` | `enum` | `REJECTED`, `SURVEILLANCE`, `APPROVED` |
+| `confidence_level` | `enum` | `LOW`, `MEDIUM`, `HIGH` |
+| `edge_net` | `number` | Edge net en % |
+| `constraints` | `object` | `{max_size, urgency, expiry}` |
+| `constraints.max_size` | `number` | Taille maximale autorisee (= volume du signal) |
+| `constraints.urgency` | `enum` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+| `constraints.expiry` | `string` | Date d'expiration ISO 8601 |
+| `rules_passed` | `array[int]` | Numeros des regles passees |
+| `rules_failed` | `array[int]` | Numeros des regles echouees |
+| `audit_ref` | `string` | Reference d'audit `"[{timestamp}]-{signal_id}"` |
+| `schema_version` | `string` | Version du schema (`"1.0.0"`) |
+| `generated_at` | `string` | Date de generation ISO 8601 |
+
+#### `rules_contract.md` — Contrat de regles IMMUTABLE
+
+Document versionne (v1.0.0) qui definit :
+
+**5 principes fondamentaux** :
+1. Alpha ne trade jamais — il autorise ou refuse
+2. Alpha n'impose jamais de taille de position — `max_size` est un plafond, pas un ordre
+3. Alpha peut retirer une decision a tout moment
+4. L'execution hors contraintes est une faute grave
+5. Aucune equipe externe ne peut modifier une AlphaDecision
+
+**Mapping regles -> methodes de validation** :
+
+| Regle | Methode de validation | Module |
+|---|---|---|
+| R1 | Structurelle (Alpha ne trade pas) | `config.py` |
+| R2 | `_check_single_metric_dominance()` | `signal_alpha.py` |
+| R3 | Semantique (tradable != signal) | `interview.py` |
+| R4 | `_check_edge_net()` | `signal_alpha.py` |
+| R5 | `_check_time_to_resolution()` | `signal_alpha.py` |
+| R6 | `_check_approval_threshold()` | `kpi.py` |
+| R7 | `_check_language()` | `signal_alpha.py` |
+| R8 | `_check_required_fields()` | `signal_alpha.py` |
+| R9 | Structurelle (rater > mauvais trade) | `config.py` |
+| R10 | `interview.py` + `llm_evaluator.py` | Multi-modules |
+
+#### `alpha_decision.py` — Classe AlphaDecisionBuilder
+
+**Constantes** :
+
+| Constante | Description |
+|---|---|
+| `ALL_RULE_NUMBERS` | `[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]` |
+| `RULE_ERROR_PATTERNS` | Dictionnaire de patterns regex pour detecter les regles violees |
+
+**Patterns de detection des regles echouees** :
+
+| Regle | Patterns regex |
+|---|---|
+| R2 | `[Rr].gle 2`, `[Dd]ominance`, `aucun chiffre ne domine` |
+| R4 | `edge_net.*inf.rieur`, `edge_net.*minimum`, `edge_net doit .tre num.rique` |
+| R5 | `[Rr].gle 5`, `time_to_resolution.*d.passe`, `SUSPECT` |
+| R7 | `[Rr].gle 7`, `[Ll]angage flou` |
+| R8 | `[Cc]hamp obligatoire manquant`, `[Cc]hamp.*vide` |
+
+**Classe `AlphaDecisionBuilder`** :
+
+```python
+AlphaDecisionBuilder(
+    signal_data: dict,      # Donnees brutes du signal
+    validation: dict,       # Resultat de SignalAlpha.validate()
+    clarity_score: float,   # Score de clarte (0-100)
+    kpi_blocked: bool,      # KPI bloque (taux > 5%)
+)
+```
+
+**Methodes** :
+
+| Methode | Signature | Description |
+|---|---|---|
+| `build()` | `-> dict` | Produit le dict AlphaDecision conforme au schema |
+| `_generate_decision_id()` | `-> str` | `"AD-{signal_id}-{timestamp}"` |
+| `_determine_status()` | `-> str` | REJECTED si `valid=False`, sinon status de la validation |
+| `_compute_confidence_level()` | `-> str` | `clarity >= 80 -> HIGH`, `>= 50 -> MEDIUM`, `< 50 -> LOW` |
+| `_parse_edge_net()` | `-> float` | Parse edge_net en float (0.0 si invalide) |
+| `_build_constraints()` | `-> dict` | Construit `{max_size, urgency, expiry}` |
+| `_extract_rules_failed()` | `-> list[int]` | Extrait les regles echouees par regex + kpi_blocked -> R6 |
+| `_compute_rules_passed()` | `-> list[int]` | Complement `{1..10} - rules_failed` |
+| `_generate_audit_ref()` | `-> str` | `"[{timestamp}]-{signal_id}"` |
+| `_parse_float(field, default)` | `-> float` | Parse un champ en float avec fallback |
+
+**Derivation de l'urgence** :
+
+| Condition | Urgence |
+|---|---|
+| `time_to_resolution <= 6h` | `CRITICAL` |
+| `time_to_resolution <= 24h` | `HIGH` |
+| `time_to_resolution <= 48h` | `MEDIUM` |
+| `time_to_resolution > 48h` | `LOW` |
+
+**Fonction `validate_against_schema`** :
+
+```python
+validate_against_schema(decision: dict) -> dict
+```
+
+Retourne `{"valid": bool, "errors": list[str]}`. Validation structurelle pure sans dependance externe (`jsonschema` non requis).
+
+**Verifications effectuees** :
+- 9 champs requis presents
+- `status` dans `{REJECTED, SURVEILLANCE, APPROVED}`
+- `confidence_level` dans `{LOW, MEDIUM, HIGH}`
+- `edge_net` numerique (int ou float)
+- 3 champs contraintes presents (`max_size`, `urgency`, `expiry`)
+- `urgency` dans `{LOW, MEDIUM, HIGH, CRITICAL}`
+- `rules_passed` et `rules_failed` sont des listes
+- `decision_id` commence par `"AD-"`
+
+### Exemples AlphaDecision
+
+**APPROVED** (`examples/approved.json`) :
+```json
+{
+  "decision_id": "AD-SIG-001-20260208120000",
+  "market": "ETH-PERP",
+  "status": "APPROVED",
+  "confidence_level": "HIGH",
+  "edge_net": 2.5,
+  "constraints": {"max_size": 500000, "urgency": "HIGH", "expiry": "2026-02-09T00:00:00"},
+  "rules_passed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "rules_failed": []
+}
+```
+
+**REJECTED** (`examples/rejected.json`) :
+```json
+{
+  "decision_id": "AD-SIG-002-20260208130000",
+  "market": "BTC-PERP",
+  "status": "REJECTED",
+  "confidence_level": "HIGH",
+  "edge_net": 0.1,
+  "constraints": {"max_size": 1000000, "urgency": "CRITICAL", "expiry": "2026-02-08T17:00:00"},
+  "rules_passed": [1, 2, 3, 5, 6, 7, 8, 9, 10],
+  "rules_failed": [4]
+}
+```
+
+**SURVEILLANCE** (`examples/surveillance.json`) :
+```json
+{
+  "decision_id": "AD-SIG-003-20260208140000",
+  "market": "SOL-PERP",
+  "status": "SURVEILLANCE",
+  "confidence_level": "MEDIUM",
+  "edge_net": 1.2,
+  "constraints": {"max_size": 200000, "urgency": "MEDIUM", "expiry": "2026-02-10T02:00:00"},
+  "rules_passed": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "rules_failed": []
+}
+```
+
+### Integration dans `manager.py`
+
+Dans `submit_signal()`, apres la validation du signal et le log d'audit, le builder est appele automatiquement :
+
+```python
+alpha_decision = AlphaDecisionBuilder(
+    signal_data=signal_data,
+    validation=validation,
+    clarity_score=clarity_score,
+    kpi_blocked=self.kpi.is_approval_blocked(),
+).build()
+```
+
+La cle `"alpha_decision"` est ajoutee au dict retourne par `submit_signal()` (ajout additif, non cassant). Un log d'audit `"alpha_decision_generated"` est enregistre.
+
+### Tests Alpha Decision (section 4b de `test_alpha.py`)
+
+23 tests unitaires couvrant :
+- Format du `decision_id` (`AD-{signal_id}-{timestamp}`)
+- Mapping des statuts (valid=True -> status du signal, valid=False -> REJECTED)
+- Niveaux de confiance (clarity 90 -> HIGH, 60 -> MEDIUM, 30 -> LOW)
+- Extraction des regles echouees par regex (R4, R7)
+- KPI bloque -> R6 dans rules_failed
+- Derivation de l'urgence (CRITICAL/HIGH/MEDIUM/LOW a 4h/12h/36h/60h)
+- Validation schema (champs requis, statut invalide, confidence invalide, edge non numerique, urgence invalide, decision_id invalide)
+
+5 tests d'integration dans la section 9 :
+- `alpha_decision` present dans le retour de `submit_signal()`
+- Status APPROVED confirme
+- `decision_id` commence par `AD-SIG-001-`
+- `schema_version` = `"1.0.0"`
+- `rules_failed` vide pour un signal valide
+
+---
+
 *Documentation generee automatiquement a partir du code source du projet Manager IA Alpha.*
-*142 tests unitaires + 59 stress-test = TOUS PASS.*
+*170 tests unitaires + 59 stress-test = TOUS PASS.*
