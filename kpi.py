@@ -5,9 +5,8 @@ Si signals_approved_pct > 5% → blocage automatique.
 """
 
 from collections import Counter
-from datetime import datetime
 
-from config import MAX_APPROVAL_PCT
+from config import MAX_APPROVAL_PCT, MIN_SIGNALS_FOR_BLOCKING, utc_now
 
 
 class KPITracker:
@@ -99,9 +98,9 @@ class KPITracker:
     # =========================================================================
     def _check_approval_threshold(self) -> None:
         """Si > 5% signaux approuvés → blocage automatique."""
-        if self.signals_approved_pct > MAX_APPROVAL_PCT and self.total_signals_submitted >= 5:
+        if self.signals_approved_pct > MAX_APPROVAL_PCT and self.total_signals_submitted >= MIN_SIGNALS_FOR_BLOCKING:
             self.approval_blocked = True
-            self.approval_blocked_at = datetime.now().isoformat()
+            self.approval_blocked_at = utc_now().isoformat()
 
     def is_approval_blocked(self) -> bool:
         return self.approval_blocked
@@ -117,7 +116,7 @@ class KPITracker:
             "status": "UNBLOCKED",
             "reviewer": reviewer,
             "reason": reason,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
 
     # =========================================================================

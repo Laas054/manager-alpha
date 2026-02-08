@@ -7,7 +7,6 @@ import json
 import os
 import re
 import unicodedata
-from datetime import datetime
 
 
 def _strip_accents(text: str) -> str:
@@ -21,6 +20,7 @@ from config import (
     INTERVIEW_PASS_SCORE_HUMAN,
     INTERVIEW_PASS_SCORE_LLM,
     QUESTIONS_FILE,
+    utc_now,
 )
 
 
@@ -154,7 +154,7 @@ class InterviewEvaluator:
             "passed": False,
             "reasons": [],
             "elimination": False,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
 
         # =====================================================================
@@ -331,7 +331,7 @@ class InterviewSession:
         self.questions = list(MANDATORY_QUESTIONS)
         self.current_index = 0
         self.active = True
-        self.started_at = datetime.now().isoformat()
+        self.started_at = utc_now().isoformat()
         self.finished_at: str | None = None
 
     def get_current_question(self) -> dict | None:
@@ -354,13 +354,13 @@ class InterviewSession:
         # Élimination immédiate
         if result["elimination"]:
             self.active = False
-            self.finished_at = datetime.now().isoformat()
+            self.finished_at = utc_now().isoformat()
             return result
 
         # LLM : tolérance zéro — un échec = fin
         if self.is_llm and not result["passed"]:
             self.active = False
-            self.finished_at = datetime.now().isoformat()
+            self.finished_at = utc_now().isoformat()
             result["elimination"] = True
             result["reasons"].append("LLM — Tolérance zéro : un seul échec = rejet")
             return result
@@ -370,7 +370,7 @@ class InterviewSession:
         # Si toutes les questions sont posées
         if self.current_index >= len(self.questions):
             self.active = False
-            self.finished_at = datetime.now().isoformat()
+            self.finished_at = utc_now().isoformat()
 
         return result
 

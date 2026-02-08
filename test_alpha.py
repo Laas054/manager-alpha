@@ -495,14 +495,14 @@ test("KPI taux rejet > 90%", kpi.signals_rejected_pct > 90)
 # Pas encore bloque (1/21 = 4.76%)
 test("KPI pas bloque a 4.8%", not kpi.is_approval_blocked())
 
-# VERROUILLAGE : Blocage auto si > 5%
+# VERROUILLAGE : Blocage auto si > 5% (fenetre N>=20)
 kpi2 = KPITracker()
-for i in range(5):
+for i in range(15):
     kpi2.record_signal("APPROVED")
-for i in range(3):
+for i in range(5):
     kpi2.record_signal("REJECTED")
-# 5/8 = 62.5% > 5%
-test("VERROUILLAGE: KPI bloque a 62.5%", kpi2.is_approval_blocked())
+# 15/20 = 75% > 5%
+test("VERROUILLAGE: KPI bloque a 75%", kpi2.is_approval_blocked())
 test("VERROUILLAGE: approval_blocked_at renseigne", kpi2.approval_blocked_at is not None)
 
 # Deblocage manuel
@@ -774,12 +774,14 @@ test("Manager n a pas de methode disable_audit", not hasattr(manager, "disable_a
 test("Audit n a pas de methode disable", not hasattr(manager.audit, "disable"))
 test("Audit n a pas de methode delete_log", not hasattr(manager.audit, "delete_log"))
 
-# KPI blocage sur le manager
+# KPI blocage sur le manager (fenetre N>=20)
 manager2 = ManagerAlpha()
 # Forcer le blocage KPI
-for i in range(6):
+for i in range(18):
     manager2.kpi.record_signal("APPROVED")
-manager2.kpi.record_signal("REJECTED")
+for i in range(2):
+    manager2.kpi.record_signal("REJECTED")
+# 18/20 = 90% > 5%
 test("Manager KPI bloque", manager2.kpi.is_approval_blocked())
 
 # Deblocage

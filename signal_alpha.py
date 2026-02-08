@@ -3,8 +3,6 @@ SIGNAL ALPHA — Format officiel et validation stricte.
 Champ manquant = rejet automatique. Aucune exception.
 """
 
-from datetime import datetime
-
 from config import (
     EQUIVALENT_METRICS,
     FORBIDDEN_WORDS_ALL,
@@ -16,6 +14,7 @@ from config import (
     SIGNAL_STATUS_REJECTED,
     SIGNAL_STATUSES,
     SIGNAL_TYPES,
+    utc_now,
 )
 
 
@@ -39,13 +38,30 @@ class SignalAlpha:
             return self._reject("Champs obligatoires manquants")
 
         self._check_signal_type()
-        self._check_signal_status()
-        self._check_edge_net()
-        self._check_time_to_resolution()
-        self._check_language()
-        self._check_single_metric_dominance()
-        self._check_risks_field()
+        if self.validation_errors:
+            return self._reject("Validation échouée")
 
+        self._check_signal_status()
+        if self.validation_errors:
+            return self._reject("Validation échouée")
+
+        self._check_edge_net()
+        if self.validation_errors:
+            return self._reject("Validation échouée")
+
+        self._check_time_to_resolution()
+        if self.validation_errors:
+            return self._reject("Validation échouée")
+
+        self._check_language()
+        if self.validation_errors:
+            return self._reject("Validation échouée")
+
+        self._check_single_metric_dominance()
+        if self.validation_errors:
+            return self._reject("Validation échouée")
+
+        self._check_risks_field()
         if self.validation_errors:
             return self._reject("Validation échouée")
 
@@ -231,7 +247,7 @@ class SignalAlpha:
             **self.data,
             "validated": self.validated,
             "validation_errors": self.validation_errors,
-            "validation_timestamp": datetime.now().isoformat(),
+            "validation_timestamp": utc_now().isoformat(),
         }
 
     def format_display(self) -> str:

@@ -4,3 +4,6 @@
 # SDK Anthropic pour les agents LLM live (OPTIONNEL — mode STANDBY actif)
 # Décommenter la ligne suivante uniquement si LLM_API_MODE = "ACTIVE" dans config.py
 # anthropic>=0.70.0
+
+# Property-based testing
+hypothesis>=6.0.0

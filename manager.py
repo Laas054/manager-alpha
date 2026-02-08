@@ -8,6 +8,7 @@ Machine à dire NON.
 from datetime import datetime
 
 from agent import Agent, AgentRegistry
+from alpha_queue import AlphaDecisionQueue
 from audit import AuditSystem, AuditViolation, audit_required
 from config import (
     AGENT_STATUS_ACTIVE,
@@ -16,6 +17,7 @@ from config import (
     ALPHA_ROLES,
     GOLDEN_RULES,
     LLM_API_MODE,
+    QUEUE_ENABLED,
     SIGNAL_STATUS_APPROVED,
     SIGNAL_STATUS_REJECTED,
 )
@@ -38,7 +40,11 @@ class ManagerAlpha:
     def __init__(self):
         self.audit = AuditSystem()
         self.registry = AgentRegistry()
+        self.registry._audit_callback = lambda action, aid: self.audit.log(
+            action, "AgentRegistry", f"agent_id={aid}", "OK"
+        )
         self.kpi = KPITracker()
+        self.queue = AlphaDecisionQueue() if QUEUE_ENABLED else None
         self.llm_evaluator = LLMEvaluator()
         self.active_interviews: dict[str, InterviewSession] = {}
         self.bypass_mode = False
@@ -451,6 +457,17 @@ class ManagerAlpha:
             f"DecisionID={alpha_decision['decision_id']}, Status={alpha_decision['status']}",
             alpha_decision["status"]
         )
+
+        # Enqueue dans la file d'attente persistée (non-bloquant)
+        if self.queue is not None:
+            try:
+                self.queue.enqueue(alpha_decision)
+            except Exception as e:
+                self.audit.log(
+                    "queue_enqueue_error", agent_id,
+                    f"DecisionID={alpha_decision['decision_id']}, Error={e}",
+                    "ERROR"
+                )
 
         return {
             "validation": validation,

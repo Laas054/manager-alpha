@@ -10,11 +10,10 @@ Exécute des batteries de tests sans intervention humaine :
 
 import os
 import sys
-from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import ALPHA_ROLES, MAX_APPROVAL_PCT
+from config import ALPHA_ROLES, MAX_APPROVAL_PCT, utc_now
 from failure_corpus import (
     BORDERLINE_INTERVIEWS,
     BORDERLINE_SIGNALS,
@@ -37,7 +36,7 @@ class StressTestReport:
         self.total_fail = 0
         self.total_expected = 0
         self.kpi_checks: list[dict] = []
-        self.started_at = datetime.now().isoformat()
+        self.started_at = utc_now().isoformat()
 
     def add_result(self, section: str, name: str, passed: bool, expected: bool,
                    detail: str = "") -> None:
@@ -299,22 +298,18 @@ def run_stress_test(verbose: bool = False, callback=None) -> StressTestReport:
             "comment": "Signal faible.",
         }
 
-        # Soumettre 3 signaux valides approuvés
-        for i in range(3):
-            sig = _valid_signal_base.copy()
-            sig["signal_id"] = f"STRESS-VALID-{i+1:03d}"
-            manager.submit_signal(active_id, sig)
+        # Enregistrer directement dans le KPI pour tester le blocage (fenêtre N>=20)
+        # Note : submit_signal() bloque tout APPROVED après le 1er via authorize_signal_approval,
+        # donc on utilise kpi.record_signal() pour tester le mécanisme de blocage KPI lui-même.
+        for i in range(12):
+            manager.kpi.record_signal("APPROVED")
+        for i in range(8):
+            manager.kpi.record_signal("REJECTED")
 
-        # Soumettre 2 signaux rejetés
-        for i in range(2):
-            sig = _rejected_signal_base.copy()
-            sig["signal_id"] = f"STRESS-REJ-{i+1:03d}"
-            manager.submit_signal(active_id, sig)
-
-        # 3/5 = 60% > 5% -> doit être bloqué
+        # 12/20 = 60% > 5% (fenêtre N>=20) -> doit être bloqué
         kpi_blocked = manager.kpi.is_approval_blocked()
         report.add_kpi_check(
-            f"KPI bloqué après 3/5 approuvés (60% > {MAX_APPROVAL_PCT}%)",
+            f"KPI bloqué après 12/20 approuvés (60% > {MAX_APPROVAL_PCT}%)",
             kpi_blocked, True, kpi_blocked
         )
         _log(section, "KPI blocage automatique", kpi_blocked)

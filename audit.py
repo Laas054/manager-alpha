@@ -4,11 +4,13 @@ Journal append-only, horodatage obligatoire, non modifiable.
 """
 
 import functools
+import hashlib
 import os
-from datetime import datetime
+import re
 
 from config import (
     AUDIT_LOG_FILE,
+    AUDIT_META_FILE,
     AUDITABLE_ACTIONS,
     BYPASS_ALLOWED_ACTIONS,
     BYPASS_FORBIDDEN_ACTIONS,
@@ -17,6 +19,7 @@ from config import (
     GOLDEN_RULES,
     LOGS_DIR,
     MAX_WARNINGS,
+    utc_now,
 )
 
 
@@ -34,31 +37,64 @@ class AuditSystem:
     - Peut bloquer toute action
     """
 
+    GENESIS_HASH = "0" * 64
+
     def __init__(self):
         os.makedirs(LOGS_DIR, exist_ok=True)
         self._log_file = AUDIT_LOG_FILE
+        self._meta_file = AUDIT_META_FILE
+        self._last_hash = self._load_last_hash()
         self._ensure_log_exists()
+
+    def _load_last_hash(self) -> str:
+        """Charge le dernier hash depuis le fichier meta."""
+        if os.path.exists(self._meta_file):
+            with open(self._meta_file, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        return self.GENESIS_HASH
+
+    def _save_last_hash(self) -> None:
+        """Sauvegarde le dernier hash dans le fichier meta."""
+        with open(self._meta_file, "w", encoding="utf-8") as f:
+            f.write(self._last_hash)
+
+    def _compute_hash(self, prev_hash: str, raw_entry: str) -> str:
+        """Calcule SHA-256(prev_hash + raw_entry)."""
+        return hashlib.sha256((prev_hash + raw_entry).encode("utf-8")).hexdigest()
 
     def _ensure_log_exists(self) -> None:
         if not os.path.exists(self._log_file):
+            timestamp = utc_now().isoformat()
+            raw = f"[{timestamp}] AUDIT SYSTEM INITIALIZED"
+            entry_hash = self._compute_hash(self._last_hash, raw)
+            self._last_hash = entry_hash
             with open(self._log_file, "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.now().isoformat()}] AUDIT SYSTEM INITIALIZED\n")
+                f.write(f"[{timestamp}] HASH={entry_hash} | AUDIT SYSTEM INITIALIZED\n")
+            self._save_last_hash()
 
     # =========================================================================
-    # JOURNAL APPEND-ONLY
+    # JOURNAL APPEND-ONLY — CHAÎNÉ SHA-256
     # =========================================================================
     def log(self, action: str, actor: str, details: str, result: str) -> None:
         """
         Écrit une entrée dans le journal d'audit. Append-only.
+        Chaque entrée est chaînée par SHA-256(prev_hash + raw_entry).
         Aucune méthode delete/edit n'existe dans cette classe.
         """
-        timestamp = datetime.now().isoformat()
-        entry = (
+        timestamp = utc_now().isoformat()
+        raw = (
             f"[{timestamp}] ACTION={action} | ACTOR={actor} | "
+            f"DETAILS={details} | RESULT={result}"
+        )
+        entry_hash = self._compute_hash(self._last_hash, raw)
+        self._last_hash = entry_hash
+        entry = (
+            f"[{timestamp}] HASH={entry_hash} | ACTION={action} | ACTOR={actor} | "
             f"DETAILS={details} | RESULT={result}\n"
         )
         with open(self._log_file, "a", encoding="utf-8") as f:
             f.write(entry)
+        self._save_last_hash()
 
     # =========================================================================
     # AUTORISATION — Appelé AVANT toute action du Manager
@@ -246,7 +282,7 @@ class AuditSystem:
             "score": score,
             "violations": all_violations,
             "passed": score >= 60,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": utc_now().isoformat(),
         }
 
         self.log(
@@ -359,6 +395,69 @@ class AuditSystem:
         with open(self._log_file, "r", encoding="utf-8") as f:
             lines = f.readlines()
         return lines[-last_n:]
+
+    # =========================================================================
+    # VÉRIFICATION D'INTÉGRITÉ — CHAÎNE SHA-256
+    # =========================================================================
+    def verify_integrity(self) -> dict:
+        """
+        Vérifie l'intégrité de la chaîne de hash du journal d'audit.
+        Parcourt chaque entrée, recalcule le hash et compare.
+        Lève AuditViolation si la chaîne est corrompue.
+        """
+        if not os.path.exists(self._log_file):
+            return {"valid": True, "entries": 0, "message": "Aucun journal"}
+
+        with open(self._log_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        prev_hash = self.GENESIS_HASH
+        verified = 0
+
+        for i, line in enumerate(lines):
+            line = line.rstrip("\n")
+            if not line:
+                continue
+
+            # Extraire le hash de l'entrée
+            match = re.match(r"\[([^\]]+)\] HASH=([a-f0-9]{64}) \| (.+)", line)
+            if not match:
+                # Entrée INIT avec hash
+                match_init = re.match(r"\[([^\]]+)\] HASH=([a-f0-9]{64}) \| (.+)", line)
+                if match_init:
+                    timestamp, stored_hash, rest = match_init.groups()
+                    raw = f"[{timestamp}] {rest}"
+                    expected_hash = self._compute_hash(prev_hash, raw)
+                    if expected_hash != stored_hash:
+                        raise AuditViolation(
+                            f"INTÉGRITÉ VIOLÉE à la ligne {i+1} : "
+                            f"hash attendu={expected_hash[:16]}..., "
+                            f"hash trouvé={stored_hash[:16]}..."
+                        )
+                    prev_hash = stored_hash
+                    verified += 1
+                continue
+
+            timestamp, stored_hash, rest = match.groups()
+            raw = f"[{timestamp}] {rest}"
+            expected_hash = self._compute_hash(prev_hash, raw)
+
+            if expected_hash != stored_hash:
+                raise AuditViolation(
+                    f"INTÉGRITÉ VIOLÉE à la ligne {i+1} : "
+                    f"hash attendu={expected_hash[:16]}..., "
+                    f"hash trouvé={stored_hash[:16]}..."
+                )
+
+            prev_hash = stored_hash
+            verified += 1
+
+        return {
+            "valid": True,
+            "entries": verified,
+            "last_hash": prev_hash,
+            "message": f"Chaîne intègre — {verified} entrées vérifiées",
+        }
 
 
 def audit_required(action_name: str):

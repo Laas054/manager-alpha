@@ -3,6 +3,13 @@ CONFIGURATION ALPHA — Règles non négociables, constantes et seuils.
 Ce fichier est la référence absolue. Aucune interprétation libre n'est autorisée.
 """
 
+from datetime import datetime, timezone
+
+
+def utc_now() -> datetime:
+    """Retourne l'heure courante en UTC. Utilisé partout à la place de datetime.now()."""
+    return datetime.now(timezone.utc)
+
 # =============================================================================
 # LOI FONDATRICE
 # =============================================================================
@@ -173,7 +180,9 @@ METRIC_DOMINANCE_THRESHOLD = 0.60  # > 60% = dominance détectée → REJET
 # SEUILS
 # =============================================================================
 MAX_WARNINGS = 3  # 3 avertissements = exclusion
+AGENT_CACHE_MAX_SIZE = 50  # Taille max du cache LRU AgentRegistry
 MAX_APPROVAL_PCT = 5.0  # Si > 5% signaux approuvés → blocage automatique
+MIN_SIGNALS_FOR_BLOCKING = 20  # Nombre minimum de signaux avant activation du blocage
 INTERVIEW_PASS_SCORE_HUMAN = 80  # Score minimum humain (%)
 INTERVIEW_PASS_SCORE_LLM = 90  # Score minimum LLM (%) — plus strict
 
@@ -191,6 +200,7 @@ DATA_DIR = "data"
 LOGS_DIR = "logs"
 AGENTS_FILE = "data/agents.json"
 AUDIT_LOG_FILE = "logs/audit.log"
+AUDIT_META_FILE = "logs/audit.meta"
 KPI_LOG_FILE = "logs/kpi.log"
 QUESTIONS_FILE = "data/questions.json"
 
@@ -235,6 +245,13 @@ BYPASS_FORBIDDEN_ACTIONS = [
 # "ACTIVE"  = Appels API autorisés (nécessite clé API valide).
 # Ce flag est le SEUL point de contrôle pour activer/désactiver les API LLM.
 LLM_API_MODE = "STANDBY"
+
+# =============================================================================
+# FILE D'ATTENTE PERSISTÉE (SQLite)
+# =============================================================================
+QUEUE_DB_PATH = "data/alpha_queue.db"
+QUEUE_MAX_RETRIES = 3
+QUEUE_ENABLED = True
 
 # =============================================================================
 # ALPHA INTERFACE — Couche d'interoperabilite

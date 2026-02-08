@@ -5,7 +5,12 @@ Ce format est la SEULE sortie autorisee d'Alpha vers l'exterieur.
 """
 
 import re
-from datetime import datetime, timedelta
+import sys
+import os
+from datetime import timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import utc_now
 
 
 # =========================================================================
@@ -38,7 +43,7 @@ class AlphaDecisionBuilder:
         self.validation = validation
         self.clarity_score = clarity_score
         self.kpi_blocked = kpi_blocked
-        self._timestamp = datetime.now()
+        self._timestamp = utc_now()
 
     def build(self) -> dict:
         """Produit le dict AlphaDecision conforme au schema."""
