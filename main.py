@@ -186,37 +186,166 @@ def recruit_human(manager: ManagerAlpha) -> None:
 
 
 # =============================================================================
-# 2. ÉVALUATION LLM
+# 2. ÉVALUATION LLM (ANTHROPIC CLAUDE — LIVE)
 # =============================================================================
-def evaluate_llm(manager: ManagerAlpha) -> None:
-    print_header("ÉVALUATION — AGENT LLM")
-    print_info("Sévérité accrue : score minimum 90%, tolérance zéro.")
 
-    name = safe_input("Nom de l'agent LLM : ")
+AVAILABLE_MODELS = {
+    "1": ("claude-haiku-4-5-20251001", "Haiku 4.5 (rapide, economique)"),
+    "2": ("claude-sonnet-4-5-20250929", "Sonnet 4.5 (equilibre)"),
+    "3": ("claude-opus-4-6", "Opus 4.6 (plus capable)"),
+}
+
+AVAILABLE_PERSONAS = {
+    "1": ("disciplined", "Discipline (connait les regles Alpha)"),
+    "2": ("naive", "Naif (ne connait pas les regles — test de rejet)"),
+}
+
+
+def _get_anthropic_api_key() -> str | None:
+    """Récupère la clé API Anthropic (env ou saisie)."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if key:
+        print_info(f"Cle API trouvee dans ANTHROPIC_API_KEY (***{key[-4:]})")
+        return key
+
+    key = safe_input("Cle API Anthropic : ")
+    if not key:
+        print_error("Cle API requise.")
+        return None
+    return key
+
+
+def _live_interview_callback(qid, question, response, evaluation):
+    """Callback pour affichage temps réel de l'entretien LLM."""
+    print(f"\n{Colors.BOLD}[{qid}] QUESTION :{Colors.END}")
+    print(f"  {question}")
+    print(f"\n{Colors.BLUE}[CLAUDE] REPONSE :{Colors.END}")
+    # Afficher la réponse complète ligne par ligne
+    for line in response.split("\n"):
+        print(f"  {line}")
+
+    score = evaluation.get("score", 0)
+    passed = evaluation.get("passed", False)
+    elimination = evaluation.get("elimination", False)
+
+    if elimination:
+        print(f"\n{Colors.RED}[VERDICT] ELIMINATOIRE — Score: {score}%{Colors.END}")
+    elif passed:
+        print(f"\n{Colors.GREEN}[VERDICT] PASS — Score: {score}%{Colors.END}")
+    else:
+        print(f"\n{Colors.YELLOW}[VERDICT] FAIL — Score: {score}%{Colors.END}")
+
+    for reason in evaluation.get("reasons", []):
+        print(f"  >> {reason}")
+
+    print(f"{'─' * 50}")
+
+
+def evaluate_llm(manager: ManagerAlpha) -> None:
+    print_header("ENTRETIEN LLM LIVE — ANTHROPIC CLAUDE")
+    print_info("Severite accrue : score minimum 90%, tolerance zero.")
+    print_info("Le Manager Alpha va interroger un agent Claude en temps reel.\n")
+
+    # Mode de fonctionnement
+    print("  Mode :")
+    print("    1. Entretien LIVE (API Anthropic)")
+    print("    2. Entretien MANUEL (saisie des reponses)")
+    mode = safe_input("\n  Choix [1/2] : ")
+
+    if mode == "2":
+        _evaluate_llm_manual(manager)
+        return
+
+    # --- MODE LIVE ---
+    api_key = _get_anthropic_api_key()
+    if not api_key:
+        return
+
+    name = safe_input("\nNom de l'agent LLM : ")
     if not name:
         print_error("Nom requis.")
         return
 
-    print(f"\nRôles disponibles : {', '.join(ALPHA_ROLES)}")
-    role = safe_input("Rôle : ")
+    print(f"\nRoles disponibles : {', '.join(ALPHA_ROLES)}")
+    role = safe_input("Role : ")
     if role not in ALPHA_ROLES:
-        print_error(f"Rôle invalide.")
+        print_error("Role invalide.")
         return
 
-    # Collecter les réponses pour chaque question
+    # Choix du modèle
+    print("\n  Modeles disponibles :")
+    for k, (mid, desc) in AVAILABLE_MODELS.items():
+        print(f"    {k}. {desc}")
+    model_choice = safe_input("\n  Modele [1/2/3] : ") or "1"
+    model = AVAILABLE_MODELS.get(model_choice, AVAILABLE_MODELS["1"])[0]
+
+    # Choix du persona
+    print("\n  Persona du candidat :")
+    for k, (pid, desc) in AVAILABLE_PERSONAS.items():
+        print(f"    {k}. {desc}")
+    persona_choice = safe_input("\n  Persona [1/2] : ") or "1"
+    persona = AVAILABLE_PERSONAS.get(persona_choice, AVAILABLE_PERSONAS["1"])[0]
+
+    print_header(
+        f"ENTRETIEN EN COURS — {name} ({role})\n"
+        f"  Modele: {model} | Persona: {persona}"
+    )
+
+    try:
+        result = manager.evaluate_llm_agent_live(
+            name=name,
+            role=role,
+            api_key=api_key,
+            model=model,
+            persona=persona,
+            callback=_live_interview_callback,
+        )
+    except AuditViolation as e:
+        print_error(f"Audit bloque l'evaluation : {e}")
+        return
+    except Exception as e:
+        print_error(f"Erreur : {e}")
+        return
+
+    if "error" in result:
+        print_error(result["error"])
+        return
+
+    # Rapport final
+    print("\n" + result.get("report", ""))
+
+    if result.get("recruited"):
+        print_success(f"Agent LLM {name} RECRUTE (ID: {result['agent_id']})")
+    else:
+        print_error(f"Agent LLM {name} REJETE")
+
+
+def _evaluate_llm_manual(manager: ManagerAlpha) -> None:
+    """Mode manuel : saisie des réponses LLM à la main."""
+    name = safe_input("\nNom de l'agent LLM : ")
+    if not name:
+        print_error("Nom requis.")
+        return
+
+    print(f"\nRoles disponibles : {', '.join(ALPHA_ROLES)}")
+    role = safe_input("Role : ")
+    if role not in ALPHA_ROLES:
+        print_error("Role invalide.")
+        return
+
     from interview import MANDATORY_QUESTIONS
 
     responses = {}
-    print_info(f"\n{len(MANDATORY_QUESTIONS)} questions à répondre.\n")
+    print_info(f"\n{len(MANDATORY_QUESTIONS)} questions a repondre.\n")
 
     for q in MANDATORY_QUESTIONS:
         print(f"{Colors.BOLD}[{q['id']}] {q['question']}{Colors.END}")
         if q.get("max_sentences"):
             print(f"  (Maximum {q['max_sentences']} phrases)")
 
-        answer = safe_input("\nRéponse LLM : ")
+        answer = safe_input("\nReponse LLM : ")
         if not answer:
-            print_error("Réponse vide — REJET immédiat.")
+            print_error("Reponse vide — REJET immediat.")
             return
 
         responses[q["id"]] = answer
@@ -225,7 +354,7 @@ def evaluate_llm(manager: ManagerAlpha) -> None:
     try:
         result = manager.evaluate_llm_agent(name, role, responses)
     except AuditViolation as e:
-        print_error(f"Audit bloque l'évaluation : {e}")
+        print_error(f"Audit bloque l'evaluation : {e}")
         return
 
     if "error" in result:
@@ -235,9 +364,9 @@ def evaluate_llm(manager: ManagerAlpha) -> None:
     print("\n" + result.get("report", ""))
 
     if result.get("recruited"):
-        print_success(f"Agent LLM {name} RECRUTÉ (ID: {result['agent_id']})")
+        print_success(f"Agent LLM {name} RECRUTE (ID: {result['agent_id']})")
     else:
-        print_error(f"Agent LLM {name} REJETÉ")
+        print_error(f"Agent LLM {name} REJETE")
 
 
 # =============================================================================

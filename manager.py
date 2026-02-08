@@ -220,6 +220,83 @@ class ManagerAlpha:
         }
 
     # =========================================================================
+    # RECRUTEMENT — Entretien LLM LIVE (Anthropic Claude)
+    # =========================================================================
+    @audit_required("recruit_agent")
+    def evaluate_llm_agent_live(self, name: str, role: str, api_key: str,
+                                model: str = "claude-sonnet-4-5-20250929",
+                                persona: str = "disciplined",
+                                callback=None,
+                                context: dict | None = None) -> dict:
+        """
+        Entretien en temps réel avec un vrai agent Claude via API Anthropic.
+        Le Manager envoie les questions, Claude répond, le Manager évalue.
+
+        Args:
+            name: Nom de l'agent LLM
+            role: Rôle Alpha
+            api_key: Clé API Anthropic
+            model: Modèle Claude
+            persona: "disciplined" ou "naive"
+            callback: Fonction pour affichage temps réel
+        """
+        if role not in ALPHA_ROLES:
+            return {"error": f"Rôle invalide '{role}'"}
+
+        agent = Agent(name, role)
+        agent.mode = "llm"
+
+        self.audit.log(
+            "start_live_interview", "ManagerAlpha",
+            f"Agent={name}, Rôle={role}, Modèle={model}, Persona={persona}",
+            "STARTED"
+        )
+
+        # Lancer l'entretien live
+        evaluator = LLMEvaluator(api_provider="anthropic", api_key=api_key)
+        result = evaluator.run_live_interview(
+            api_key=api_key,
+            role=role,
+            model=model,
+            persona=persona,
+            callback=callback,
+        )
+
+        agent.interview_passed = result.get("passed", False)
+        agent.interview_score = result.get("score", 0)
+
+        if agent.interview_passed:
+            agent.activate()
+
+        agent_id = self.registry.add(agent)
+
+        # Logger chaque réponse dans le decisions_log de l'agent
+        for resp in result.get("responses", []):
+            agent.log_decision({
+                "action": "interview_response",
+                "question_id": resp["question_id"],
+                "response": resp["response"][:200],
+                "score": resp["score"],
+                "passed": resp["passed"],
+                "justification": f"Score {resp['score']}% sur question {resp['question_id']}",
+            })
+
+        self.registry._save()
+
+        self.audit.log(
+            "evaluate_llm_live", agent_id,
+            f"Modèle={model}, Score={result.get('score', 0)}, Passé={result.get('passed')}",
+            "RECRUITED" if result.get("passed") else "REJECTED"
+        )
+
+        return {
+            "agent_id": agent_id,
+            "result": result,
+            "recruited": result.get("passed", False),
+            "report": evaluator.get_live_report(result),
+        }
+
+    # =========================================================================
     # SOUMISSION DE SIGNAL
     # =========================================================================
     @audit_required("submit_signal")

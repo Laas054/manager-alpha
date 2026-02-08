@@ -1,7 +1,5 @@
 # Manager IA Alpha — Dépendances
-# Aucune dépendance externe requise.
-# Le système fonctionne avec Python 3.10+ (bibliothèque standard uniquement).
-#
-# Dépendances optionnelles pour les agents LLM via API :
-# openai>=1.0.0
-# anthropic>=0.20.0
+# Python 3.10+ requis (bibliothèque standard + anthropic)
+
+# SDK Anthropic pour les agents LLM live
+anthropic>=0.70.0
