@@ -5,6 +5,7 @@
 > **Statut API LLM** : STANDBY
 > **Alpha Interface** : v1.0.0 (AlphaDecision)
 > **Tests** : 170 unitaires + 59 stress-test = TOUS PASS
+> **Reference IA** : `REFERENCE_IA.md` (519 lignes, version condensee pour transmission IA)
 > **Repository** : github.com/Laas054/manager-alpha
 
 ---
@@ -35,6 +36,7 @@
 22. [Tableau des seuils et constantes](#22-tableau-des-seuils-et-constantes)
 23. [Mots interdits](#23-mots-interdits)
 24. [Alpha Interface — Couche d'interoperabilite](#24-alpha-interface--couche-dinteroperabilite)
+25. [Reference IA condensee (REFERENCE_IA.md)](#25-reference-ia-condensee-reference_iamd)
 
 ---
 
@@ -64,6 +66,7 @@ Le **Manager IA Alpha** est un systeme de gestion d'equipe de trading algorithmi
 | Suivi KPI | Blocage automatique si taux approbation > 5% |
 | Stress-test | Batterie de 59 verifications automatisees |
 | Alpha Interface | Format de sortie AlphaDecision (schema JSON, contrat immutable, validation) |
+| Reference IA | Documentation condensee (519 lignes) pour transmission a d'autres IA |
 
 ---
 
@@ -105,6 +108,8 @@ C:\Users\Annick\manager-alpha\
 |-- logs/
 |   |-- audit.log             # Journal d'audit append-only
 |
+|-- DOCUMENTATION.md          # Documentation complete (ce fichier)
+|-- REFERENCE_IA.md           # Reference condensee pour transmission IA (519 lignes)
 |-- requirements.txt          # Dependances
 |-- .gitignore                # Fichiers exclus du versionnement
 ```
@@ -1721,6 +1726,50 @@ La cle `"alpha_decision"` est ajoutee au dict retourne par `submit_signal()` (aj
 - `decision_id` commence par `AD-SIG-001-`
 - `schema_version` = `"1.0.0"`
 - `rules_failed` vide pour un signal valide
+
+---
+
+## 25. REFERENCE IA CONDENSEE (REFERENCE_IA.md)
+
+### Objectif
+
+Le fichier `REFERENCE_IA.md` est une version **condensee** (519 lignes) de cette documentation, optimisee pour etre transmise a d'autres IA. Il contient la totalite des informations techniques necessaires pour comprendre, analyser et travailler avec le systeme Manager Alpha sans acceder au code source.
+
+### Contenu
+
+| Section | Description |
+|---|---|
+| Loi fondatrice + 10 Regles d'Or | Regles avec consequences directes |
+| Architecture | 14 modules + 1 package avec dependances |
+| Seuils et constantes | Toutes les valeurs de config.py |
+| Mots interdits | 33 termes (FR + EN + LLM) listes |
+| Classes et methodes | Signatures, parametres, retours, comportements |
+| 7 questions d'entretien | Keywords requis/interdits, pieges, max phrases |
+| Pipeline de validation | 8 etapes avec mots-cles de detection |
+| Alpha Interface | Schema JSON, builder, derivations, regex |
+| Flux metier | Signal, recrutement humain, recrutement LLM, blocage KPI |
+| Securite | 6 verrouillages documentes |
+| Tests | 170 unitaires (12 sections) + 59 stress (8 sections) |
+| CLI | 13 options, modes STANDBY/ACTIVE |
+
+### Differences avec DOCUMENTATION.md
+
+| Critere | DOCUMENTATION.md | REFERENCE_IA.md |
+|---|---|---|
+| Lignes | ~1730 | 519 |
+| Public cible | Humains + IA | IA uniquement |
+| Format | Explicatif, exemples CLI, guides | Tableaux, signatures, listes structurees |
+| Exemples d'utilisation CLI | Oui (option par option) | Non |
+| Exemples JSON complets | Oui (3 fichiers) | Schemas annotes |
+| Descriptions textuelles | Oui | Non (format telegraphique) |
+| Couverture technique | 100% | 100% |
+
+### Usage recommande
+
+Pour transmettre le contexte complet du projet a une autre IA :
+1. Fournir `REFERENCE_IA.md` comme contexte initial
+2. L'IA disposera de toutes les regles, classes, methodes, seuils et flux
+3. Aucun acces au code source n'est necessaire pour comprendre le systeme
 
 ---
 
