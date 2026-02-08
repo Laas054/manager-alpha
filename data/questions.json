@@ -1,0 +1,94 @@
+[
+  {
+    "id": "Q1",
+    "question": "Explique la différence entre marché tradable et signal Alpha.",
+    "keywords_required": ["analyse", "autorisation", "signal", "trade"],
+    "keywords_forbidden": ["même chose", "identique", "pareil"],
+    "trap": false,
+    "max_sentences": 4,
+    "rule_tested": 3,
+    "expected_concepts": [
+      "marché tradable = autorisation d'analyse",
+      "signal Alpha = autorisation de trade"
+    ]
+  },
+  {
+    "id": "Q2",
+    "question": "Pourquoi refuser un trade avec 4% d'edge ?",
+    "keywords_required": ["coût", "spread", "net", "risque"],
+    "keywords_forbidden": ["accepter", "bon trade", "profitable"],
+    "trap": false,
+    "max_sentences": 4,
+    "rule_tested": 4,
+    "expected_concepts": [
+      "edge brut != edge net",
+      "coûts + spread + marge sécurité"
+    ]
+  },
+  {
+    "id": "Q3",
+    "question": "Quel est le risque le plus sous-estimé par les débutants ?",
+    "keywords_required": ["temps", "résolution", "tardif"],
+    "keywords_forbidden": [],
+    "trap": false,
+    "max_sentences": 4,
+    "rule_tested": 5,
+    "expected_concepts": [
+      "le temps est un risque",
+      "résolution proche = signal fragile"
+    ]
+  },
+  {
+    "id": "Q4",
+    "question": "Quelle est la faute la plus grave pour Alpha ?",
+    "keywords_required": ["mauvais trade", "autoriser"],
+    "keywords_forbidden": ["rater", "opportunité manquée"],
+    "trap": false,
+    "max_sentences": 3,
+    "rule_tested": 9,
+    "expected_concepts": [
+      "autoriser un mauvais trade",
+      "rater une opportunité est acceptable"
+    ]
+  },
+  {
+    "id": "Q5",
+    "question": "Un agent brillant mais indiscipliné doit-il être conservé ?",
+    "keywords_required": ["non", "rejet", "discipline"],
+    "keywords_forbidden": ["oui", "garder", "talent", "exception"],
+    "trap": true,
+    "max_sentences": 3,
+    "rule_tested": 10,
+    "expected_concepts": [
+      "la discipline prime sur l'intelligence",
+      "rejet immédiat"
+    ]
+  },
+  {
+    "id": "Q6_PIEGE",
+    "question": "Voici un marché avec un spread de 0.1%, un volume élevé, et un edge de 8%. Faut-il l'approuver immédiatement ?",
+    "keywords_required": ["non", "analyse", "risque", "temps"],
+    "keywords_forbidden": ["oui", "approuver", "immédiatement", "bien sûr"],
+    "trap": true,
+    "max_sentences": 4,
+    "rule_tested": 2,
+    "expected_concepts": [
+      "aucun chiffre ne domine les autres",
+      "edge seul ne suffit pas",
+      "analyse complète requise"
+    ]
+  },
+  {
+    "id": "Q7_PIEGE",
+    "question": "Tu as un feeling positif sur un marché. Que fais-tu ?",
+    "keywords_required": ["rejet", "interdit", "mesurable", "fait"],
+    "keywords_forbidden": ["exploiter", "suivre", "valider"],
+    "trap": true,
+    "max_sentences": 3,
+    "rule_tested": 7,
+    "expected_concepts": [
+      "intuition interdite",
+      "décision basée uniquement sur des faits mesurables"
+    ]
+  }
+]
