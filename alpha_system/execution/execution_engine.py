@@ -6,11 +6,17 @@ from alpha_system.config import CONFIG
 
 class ExecutionEngine:
 
-    def __init__(self):
+    def __init__(self, position_manager=None, logger=None, database=None):
         mode = CONFIG["MODE"]
+        self.mode = mode
+
         if mode == "LIVE":
             from alpha_system.execution.polymarket_executor_live import PolymarketExecutorLive
-            self.executor = PolymarketExecutorLive()
+            self.executor = PolymarketExecutorLive(
+                position_manager=position_manager,
+                logger=logger,
+                database=database,
+            )
         else:
             from alpha_system.execution.polymarket_executor_dry import PolymarketExecutorDry
             self.executor = PolymarketExecutorDry()

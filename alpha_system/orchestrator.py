@@ -44,22 +44,26 @@ class AlphaOrchestrator:
         self.confidence = ConfidenceManager(CONFIG)
         self.optimizer = ProfitOptimizer()
 
-        # Execution
-        self.execution = ExecutionEngine()
+        # Cost & Risk (before execution — needed by position manager)
         self.cost_calc = CostCalculator(CONFIG)
-
-        # Risk & Protection
         self.risk = RiskEngineV2(CONFIG)
         self.kill_switch = KillSwitch()
 
-        # Position Manager
+        # Position Manager (before execution — passed to live executor)
         self.positions = PositionManager(
-            execution=self.execution,
             risk_engine=self.risk,
             database=self.db,
             cost_calc=self.cost_calc,
             logger=self.log,
         )
+
+        # Execution (receives position_manager for LIVE mode)
+        self.execution = ExecutionEngine(
+            position_manager=self.positions,
+            logger=self.log,
+            database=self.db,
+        )
+        self.positions.execution = self.execution
 
         # Position Monitor (WebSocket temps réel)
         self.monitor = PositionMonitor(
