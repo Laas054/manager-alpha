@@ -10,6 +10,7 @@ from alpha_system.ai.confidence_manager import ConfidenceManager
 from alpha_system.ai.profit_optimizer import ProfitOptimizer
 from alpha_system.execution.execution_engine import ExecutionEngine
 from alpha_system.execution.cost_calculator import CostCalculator
+from alpha_system.execution.position_manager import PositionManager
 from alpha_system.risk.risk_engine_v2 import RiskEngineV2
 
 
@@ -49,6 +50,15 @@ class AlphaOrchestrator:
         # Risk & Protection
         self.risk = RiskEngineV2(CONFIG)
         self.kill_switch = KillSwitch()
+
+        # Position Manager
+        self.positions = PositionManager(
+            execution=self.execution,
+            risk_engine=self.risk,
+            database=self.db,
+            cost_calc=self.cost_calc,
+            logger=self.log,
+        )
 
         # State
         self.capital = CONFIG["STARTING_CAPITAL"]
@@ -268,6 +278,11 @@ class AlphaOrchestrator:
         risk_status = self.risk.get_status()
         self.log.info(f"  Risk: streak:{risk_status['loss_streak']} daily:{risk_status['daily_trades']} hourly:{risk_status['hourly_trades']}")
         self.log.info(f"  Peak capital: {risk_status['peak_capital']} | Open positions: {risk_status['open_positions']}")
+
+        # Position Manager status
+        pos_status = self.positions.get_status()
+        self.log.info(f"  Positions: {pos_status['open_count']} open, {pos_status['closed_count']} closed")
+        self.log.info(f"  Exposure: {pos_status['total_exposure']} | Unrealized PnL: {pos_status['unrealized_pnl']}")
 
         # Scanner status
         scan_status = self.scanner.get_status()

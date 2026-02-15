@@ -152,6 +152,40 @@ def test_logger():
     print("  [OK] logger")
 
 
+def test_position_manager():
+    from alpha_system.config import CONFIG
+    from alpha_system.execution.position_manager import PositionManager
+    from alpha_system.risk.risk_engine_v2 import RiskEngineV2
+    from alpha_system.execution.cost_calculator import CostCalculator
+    risk = RiskEngineV2(CONFIG)
+    cost = CostCalculator(CONFIG)
+    pm = PositionManager(risk_engine=risk, cost_calc=cost)
+    # Open position
+    pos = pm.open_position("test_market", "tok123", "YES", 0.60, 5, confidence=0.85)
+    assert pos.status == "OPEN"
+    assert pm.has_position("test_market")
+    assert pm.get_total_exposure() == 5
+    # Update price — no exit
+    pm.update_price("test_market", 0.62)
+    assert pm.has_position("test_market")
+    assert pos.pnl > 0
+    # Take profit trigger
+    pm.update_price("test_market", 0.70)
+    assert not pm.has_position("test_market")
+    assert len(pm.closed_positions) == 1
+    assert pm.closed_positions[0].exit_reason == "TAKE_PROFIT"
+    # Stop loss test
+    pos2 = pm.open_position("market2", "tok456", "YES", 0.50, 3)
+    pm.update_price("market2", 0.40)
+    assert not pm.has_position("market2")
+    assert pm.closed_positions[-1].exit_reason == "STOP_LOSS"
+    # Status
+    status = pm.get_status()
+    assert status["open_count"] == 0
+    assert status["closed_count"] == 2
+    print("  [OK] position_manager")
+
+
 def run_all():
 
     print("=" * 50)
@@ -169,6 +203,7 @@ def run_all():
         test_profit_optimizer,
         test_adaptive_scanner,
         test_logger,
+        test_position_manager,
     ]
 
     passed = 0
