@@ -12,6 +12,10 @@ from alpha_system.execution.execution_engine import ExecutionEngine
 from alpha_system.execution.cost_calculator import CostCalculator
 from alpha_system.execution.position_manager import PositionManager
 from alpha_system.execution.position_monitor import PositionMonitor
+from alpha_system.execution.wallet_monitor import WalletMonitor
+from alpha_system.execution.order_monitor import OrderMonitor
+from alpha_system.execution.execution_guard import ExecutionGuard
+from alpha_system.execution.live_execution_orchestrator import LiveExecutionOrchestrator
 from alpha_system.risk.risk_engine_v2 import RiskEngineV2
 
 
@@ -64,6 +68,32 @@ class AlphaOrchestrator:
             database=self.db,
         )
         self.positions.execution = self.execution
+
+        # Live Execution modules
+        self.wallet = WalletMonitor(
+            polymarket_client=getattr(self.execution.executor, 'client', None),
+            logger=self.log,
+            database=self.db,
+        )
+        self.order_monitor = OrderMonitor(
+            polymarket_client=getattr(self.execution.executor, 'client', None),
+            logger=self.log,
+            database=self.db,
+        )
+        self.guard = ExecutionGuard(
+            config=CONFIG,
+            logger=self.log,
+            database=self.db,
+        )
+        self.live_exec = LiveExecutionOrchestrator(
+            executor=self.execution,
+            position_manager=self.positions,
+            wallet_monitor=self.wallet,
+            guard=self.guard,
+            order_monitor=self.order_monitor,
+            logger=self.log,
+            database=self.db,
+        )
 
         # Position Monitor (WebSocket temps réel)
         self.monitor = PositionMonitor(
@@ -159,9 +189,9 @@ class AlphaOrchestrator:
                 self.db.log_audit("RISK_BLOCKED", risk_reason)
                 continue
 
-            # 8. Execute
+            # 8. Execute (via full pipeline: guard -> wallet -> execute -> fill)
             order = self.errors.safe_execute(
-                self.execution.execute, decision,
+                self.live_exec.execute, decision,
                 default=None, context="execution"
             )
 
@@ -295,6 +325,14 @@ class AlphaOrchestrator:
         pos_status = self.positions.get_status()
         self.log.info(f"  Positions: {pos_status['open_count']} open, {pos_status['closed_count']} closed")
         self.log.info(f"  Exposure: {pos_status['total_exposure']} | Unrealized PnL: {pos_status['unrealized_pnl']}")
+
+        # Live Execution status
+        live_status = self.live_exec.get_status()
+        self.log.info(f"  Execution: signals:{live_status['total_signals']} executed:{live_status['executed']} guard_blocked:{live_status['guard_blocked']} wallet_blocked:{live_status['wallet_blocked']}")
+
+        # Wallet status
+        wallet_status = self.wallet.get_status()
+        self.log.info(f"  Wallet: balance:{wallet_status['balance']} checks:{wallet_status['checks_total']} blocked:{wallet_status['checks_blocked']}")
 
         # Position Monitor status
         mon_status = self.monitor.get_status()

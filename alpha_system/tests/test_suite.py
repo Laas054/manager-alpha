@@ -186,6 +186,49 @@ def test_position_manager():
     print("  [OK] position_manager")
 
 
+def test_wallet_monitor():
+    from alpha_system.execution.wallet_monitor import WalletMonitor
+    wm = WalletMonitor()
+    assert wm.get_balance() == 1000
+    ok, _ = wm.validate_trade(500)
+    assert ok is True
+    ok, _ = wm.validate_trade(2000)
+    assert ok is False
+    wm.update_balance(-100)
+    assert wm.cached_balance == 900
+    print("  [OK] wallet_monitor")
+
+
+def test_execution_guard():
+    from alpha_system.config import CONFIG
+    from alpha_system.execution.execution_guard import ExecutionGuard
+    guard = ExecutionGuard()
+    max_size = CONFIG["MAX_TRADE_SIZE"]
+    # Valid order
+    ok, _ = guard.validate({"market": "test", "side": "YES", "price": 0.7, "size": min(5, max_size)})
+    assert ok is True
+    # Size too large
+    ok, _ = guard.validate({"market": "test", "side": "YES", "price": 0.7, "size": max_size + 500})
+    assert ok is False
+    # Invalid price
+    ok, _ = guard.validate({"market": "test", "side": "YES", "price": 1.5, "size": min(5, max_size)})
+    assert ok is False
+    # Missing side
+    ok, _ = guard.validate({"market": "test", "side": "", "price": 0.5, "size": min(5, max_size)})
+    assert ok is False
+    print("  [OK] execution_guard")
+
+
+def test_order_monitor():
+    from alpha_system.execution.order_monitor import OrderMonitor
+    om = OrderMonitor()
+    result = om.wait_for_fill("test-order-123")
+    assert result is not None
+    assert result["status"] == "filled"
+    assert om.filled_count == 1
+    print("  [OK] order_monitor")
+
+
 def run_all():
 
     print("=" * 50)
@@ -204,6 +247,9 @@ def run_all():
         test_adaptive_scanner,
         test_logger,
         test_position_manager,
+        test_wallet_monitor,
+        test_execution_guard,
+        test_order_monitor,
     ]
 
     passed = 0
