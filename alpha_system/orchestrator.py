@@ -30,7 +30,7 @@ class AlphaOrchestrator:
 
         # Market
         self.reader = PolymarketReader()
-        self.scanner = AdaptiveScanner(CONFIG["SCAN_INTERVAL"])
+        self.scanner = AdaptiveScanner(config=CONFIG)
 
         # AI
         self.ai_clients = [
@@ -44,7 +44,7 @@ class AlphaOrchestrator:
 
         # Execution
         self.execution = ExecutionEngine()
-        self.cost_calc = CostCalculator()
+        self.cost_calc = CostCalculator(CONFIG)
 
         # Risk & Protection
         self.risk = RiskEngineV2(CONFIG)
@@ -159,6 +159,10 @@ class AlphaOrchestrator:
                 self.losses += 1
 
             self.risk.record_trade(pnl)
+            self.risk.update_capital(self.capital)
+
+            # Confidence outcome for auto-adjust
+            self.confidence.record_outcome(decision["confidence"], pnl > 0)
 
             # 10. Record in database
             self.db.record_trade(
@@ -262,7 +266,12 @@ class AlphaOrchestrator:
 
         # Risk status
         risk_status = self.risk.get_status()
-        self.log.info(f"  Risk: streak:{risk_status['loss_streak']} daily:{risk_status['daily_trades']} trades")
+        self.log.info(f"  Risk: streak:{risk_status['loss_streak']} daily:{risk_status['daily_trades']} hourly:{risk_status['hourly_trades']}")
+        self.log.info(f"  Peak capital: {risk_status['peak_capital']} | Open positions: {risk_status['open_positions']}")
+
+        # Scanner status
+        scan_status = self.scanner.get_status()
+        self.log.info(f"  Scanner: interval:{scan_status['interval']}s rate_limited:{scan_status['rate_limited']}")
 
         # Error status
         err_status = self.errors.get_status()

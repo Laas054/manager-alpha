@@ -1,12 +1,11 @@
 import sqlite3
-import json
 import os
 import shutil
 from datetime import datetime, UTC
 
 
 class DatabaseManager:
-    """SQLite persistence — trades, performance, backup, recovery."""
+    """SQLite persistence — trades, capital_history, strategy_versions, backup, recovery."""
 
     def __init__(self, db_path="alpha_system/data/alpha_system.db"):
 
@@ -34,7 +33,27 @@ class DatabaseManager:
                 confidence REAL NOT NULL,
                 model TEXT DEFAULT '',
                 source TEXT DEFAULT 'ai',
-                status TEXT DEFAULT 'SIMULATED'
+                status TEXT DEFAULT 'SIMULATED',
+                fees REAL DEFAULT 0,
+                slippage REAL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS capital_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                capital REAL NOT NULL,
+                pnl REAL NOT NULL,
+                drawdown_pct REAL NOT NULL,
+                trade_count INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS strategy_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                version TEXT NOT NULL,
+                confidence_threshold REAL NOT NULL,
+                max_risk REAL NOT NULL,
+                notes TEXT DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS system_state (
@@ -56,20 +75,57 @@ class DatabaseManager:
             );
         """)
         self.conn.commit()
+        self._migrate()
+
+    def _migrate(self):
+        """Ajoute les colonnes manquantes aux tables existantes."""
+
+        migrations = [
+            ("trades", "fees", "REAL DEFAULT 0"),
+            ("trades", "slippage", "REAL DEFAULT 0"),
+            ("trades", "model", "TEXT DEFAULT ''"),
+            ("trades", "source", "TEXT DEFAULT 'ai'"),
+            ("trades", "status", "TEXT DEFAULT 'SIMULATED'"),
+        ]
+
+        for table, column, col_type in migrations:
+            try:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                self.conn.commit()
+            except Exception:
+                pass  # Column already exists
 
     # === TRADES ===
 
     def record_trade(self, market, side, price, size, pnl, confidence,
-                     model="", source="ai", status="SIMULATED"):
+                     model="", source="ai", status="SIMULATED",
+                     fees=0, slippage=0):
 
         self.conn.execute("""
             INSERT INTO trades (timestamp, market, side, price, size, pnl,
-                                confidence, model, source, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                confidence, model, source, status, fees, slippage)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.now(UTC).isoformat(), market, side, price, size, pnl,
-            confidence, model, source, status
+            confidence, model, source, status, fees, slippage
         ))
+        self.conn.commit()
+
+    def update_trade(self, trade_id, **kwargs):
+        """Met à jour un trade existant."""
+
+        allowed = {"pnl", "status", "fees", "slippage"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed}
+
+        if not updates:
+            return
+
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [trade_id]
+
+        self.conn.execute(
+            f"UPDATE trades SET {set_clause} WHERE id = ?", values
+        )
         self.conn.commit()
 
     def get_trades(self, limit=100):
@@ -97,6 +153,38 @@ class DatabaseManager:
         """)
         row = cursor.fetchone()
         return dict(row) if row else {}
+
+    # === CAPITAL HISTORY ===
+
+    def record_capital(self, capital, pnl, drawdown_pct, trade_count):
+
+        self.conn.execute("""
+            INSERT INTO capital_history (timestamp, capital, pnl, drawdown_pct, trade_count)
+            VALUES (?, ?, ?, ?, ?)
+        """, (datetime.now(UTC).isoformat(), capital, pnl, drawdown_pct, trade_count))
+        self.conn.commit()
+
+    def get_capital_history(self, limit=500):
+
+        cursor = self.conn.execute(
+            "SELECT * FROM capital_history ORDER BY id DESC LIMIT ?", (limit,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    # === STRATEGY VERSIONS ===
+
+    def save_strategy_version(self, version, confidence_threshold, max_risk, notes=""):
+
+        self.conn.execute("""
+            INSERT INTO strategy_versions (timestamp, version, confidence_threshold, max_risk, notes)
+            VALUES (?, ?, ?, ?, ?)
+        """, (datetime.now(UTC).isoformat(), version, confidence_threshold, max_risk, notes))
+        self.conn.commit()
+
+    def get_strategy_versions(self):
+
+        cursor = self.conn.execute("SELECT * FROM strategy_versions ORDER BY id DESC")
+        return [dict(row) for row in cursor.fetchall()]
 
     # === STATE ===
 

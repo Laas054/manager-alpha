@@ -6,9 +6,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Mapping Polymarket YES/NO <-> directive buy/sell/hold/skip
+SIDE_MAP_TO_POLYMARKET = {"buy": "YES", "sell": "NO", "hold": "NO", "skip": "NO"}
+SIDE_MAP_FROM_POLYMARKET = {"YES": "buy", "NO": "sell"}
+VALID_SIDES = {"YES", "NO", "buy", "sell", "hold", "skip"}
+
 
 class SecureAIClient:
-    """Client IA sécurisé — validation, retry, fallback, benchmark."""
+    """Client IA sécurisé — validation, retry, fallback, benchmark, query()."""
 
     def __init__(self, config):
 
@@ -23,6 +28,61 @@ class SecureAIClient:
         self.successful_calls = 0
         self.fallback_calls = 0
         self.total_latency = 0
+
+    # === QUERY — generic prompt (directive obligatoire) ===
+
+    def query(self, prompt, model="deepseek-v3.2"):
+        """Envoie un prompt libre à l'IA. Retourne le texte brut ou None."""
+
+        self.total_calls += 1
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                start = time.time()
+
+                response = requests.post(
+                    self.url,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "stream": False
+                    },
+                    timeout=self.timeout
+                )
+
+                latency = time.time() - start
+                self.total_latency += latency
+
+                if response.status_code != 200:
+                    if attempt < self.max_retries:
+                        time.sleep(2)
+                        continue
+                    return None
+
+                data = response.json()
+                content = data.get("message", {}).get("content", "")
+
+                if content:
+                    self.successful_calls += 1
+                    return content
+
+                if attempt < self.max_retries:
+                    continue
+                return None
+
+            except Exception:
+                if attempt < self.max_retries:
+                    time.sleep(2)
+                    continue
+                return None
+
+        return None
+
+    # === EVALUATE — market evaluation (existing) ===
 
     def evaluate(self, market, model="deepseek-v3.2"):
         """Évalue un marché avec validation complète de la réponse."""
@@ -124,7 +184,7 @@ Return ONLY valid JSON:
         if "trade" not in parsed:
             return None
 
-        if "side" not in parsed or parsed["side"] not in ("YES", "NO"):
+        if "side" not in parsed or parsed["side"] not in VALID_SIDES:
             return None
 
         if "confidence" not in parsed:
@@ -136,9 +196,14 @@ Return ONLY valid JSON:
         if confidence < 0 or confidence > 1:
             return None
 
+        # Normaliser side vers YES/NO pour Polymarket
+        side = parsed["side"]
+        if side in SIDE_MAP_TO_POLYMARKET:
+            side = SIDE_MAP_TO_POLYMARKET[side]
+
         return {
             "trade": bool(parsed["trade"]),
-            "side": parsed["side"],
+            "side": side,
             "confidence": round(float(confidence), 4),
         }
 

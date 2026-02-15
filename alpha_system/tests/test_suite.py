@@ -42,6 +42,27 @@ def test_risk_engine():
     assert ok is False
     ok, reason = risk.validate_trade(1000, min(5, max_size), 0.40)
     assert ok is False
+    # check_drawdown
+    ok, _ = risk.check_drawdown(900)
+    assert ok is True
+    ok, _ = risk.check_drawdown(100)
+    assert ok is False
+    # check_loss_streak
+    ok, _ = risk.check_loss_streak()
+    assert ok is True
+    for _ in range(6):
+        risk.record_trade(-1)
+    ok, _ = risk.check_loss_streak()
+    assert ok is False
+    # check_trade_limits
+    risk2 = RiskEngineV2(CONFIG)
+    ok, _ = risk2.check_trade_limits()
+    assert ok is True
+    # add/remove position
+    risk2.add_position("test_market", 5, 0.7)
+    assert "test_market" in risk2.get_positions()
+    risk2.remove_position("test_market")
+    assert "test_market" not in risk2.get_positions()
     print("  [OK] risk_engine_v2")
 
 
@@ -59,12 +80,18 @@ def test_confidence_manager():
 
 
 def test_cost_calculator():
+    from alpha_system.config import CONFIG
     from alpha_system.execution.cost_calculator import CostCalculator
-    cc = CostCalculator()
+    cc = CostCalculator(CONFIG)
     ok, _ = cc.validate({"size": 10, "price": 0.8, "confidence": 0.9})
     assert ok is True
     ok, _ = cc.validate({"size": 0.1, "price": 0.51, "confidence": 0.65})
     assert ok is False
+    costs = cc.calculate_total_cost(10, 0.8)
+    assert "total_cost" in costs
+    assert costs["total_cost"] > 0
+    adjusted = cc.adjust_pnl(1.0, 10, 0.8)
+    assert "adjusted_pnl" in adjusted
     print("  [OK] cost_calculator")
 
 
@@ -98,21 +125,30 @@ def test_profit_optimizer():
 
 
 def test_adaptive_scanner():
+    from alpha_system.config import CONFIG
     from alpha_system.market.adaptive_scanner import AdaptiveScanner
-    sc = AdaptiveScanner(60)
+    sc = AdaptiveScanner(config=CONFIG)
     assert sc.can_scan() is True
+    assert sc.get_interval() == CONFIG["SCAN_INTERVAL"]
     sc.record_scan(50)
-    assert sc.current_interval == 60
+    assert sc.current_interval == CONFIG["SCAN_INTERVAL"]
     sc.record_scan(0)
-    assert sc.current_interval > 60
+    assert sc.current_interval > CONFIG["SCAN_INTERVAL"]
+    # Rate limit
+    sc.report_rate_limit(30)
+    assert sc.rate_limited is True
+    sc.clear_rate_limit()
+    assert sc.rate_limited is False
     print("  [OK] adaptive_scanner")
 
 
 def test_logger():
-    from alpha_system.utils.logger import Logger
-    log = Logger("test_logger")
+    from alpha_system.utils.logger import setup_logger
+    log = setup_logger("test_logger")
     log.info("test message")
     log.trade("test_market", "YES", 1, 0.1, 0.85)
+    log.risk("test risk message")
+    log.audit("TEST", "audit detail")
     print("  [OK] logger")
 
 
