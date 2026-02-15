@@ -1,10 +1,11 @@
 # DOCUMENTATION COMPLETE — MANAGER IA ALPHA
 
-> **Version** : 1.2
+> **Version** : 2.0
 > **Python** : 3.10+
 > **Statut API LLM** : STANDBY
 > **Alpha Interface** : v1.0.0 (AlphaDecision)
-> **Tests** : 170 unitaires + 59 stress-test + 7 property-based = TOUS PASS
+> **Trading Bot Alpha** : v2.0 (3 modes: Standard, Ultra Fast, WebSocket)
+> **Tests** : 170 unitaires + 59 stress-test + 7 property-based + 11 alpha_system = TOUS PASS
 > **Dependance optionnelle** : `hypothesis>=6.0.0` (property-based testing)
 > **Reference IA** : `REFERENCE_IA.md` (version condensee pour transmission IA)
 > **Repository** : github.com/Laas054/manager-alpha
@@ -40,6 +41,17 @@
 25. [Module alpha_queue.py](#25-module-alpha_queuepy)
 26. [Les 7 optimisations](#26-les-7-optimisations)
 27. [Reference IA condensee (REFERENCE_IA.md)](#27-reference-ia-condensee-reference_iamd)
+28. [Architecture Trading Bot Alpha](#28-architecture-trading-bot-alpha)
+29. [Configuration Trading Bot](#29-configuration-configpy)
+30. [Pipeline d'execution](#30-pipeline-dexecution)
+31. [Modules — Details techniques](#31-modules--details-techniques)
+32. [Polymarket API](#32-polymarket-api)
+33. [Ollama Cloud API](#33-ollama-cloud-api)
+34. [Securite et protection](#34-securite-et-protection)
+35. [Variables d'environnement](#35-variables-denvironnement-env)
+36. [Tests](#36-tests)
+37. [Lancement](#37-lancement)
+38. [Workflow DRY -> LIVE](#38-workflow-complet-dry---live)
 
 ---
 
@@ -1977,4 +1989,403 @@ Pour transmettre le contexte complet du projet a une autre IA :
 ---
 
 *Documentation generee automatiquement a partir du code source du projet Manager IA Alpha.*
+
+---
+---
+
+# TRADING BOT ALPHA — DOCUMENTATION TECHNIQUE v2.0
+
+> **Mode actuel** : DRY RUN (simulation)
+> **Marche** : Polymarket (prediction markets)
+> **IA** : Ollama Cloud (3 modeles en ensemble)
+> **Base de donnees** : SQLite
+> **Tests** : 11/11 passent
+> **Derniere validation** : 5 cycles complets, 0 erreurs
+
+---
+
+## 28. ARCHITECTURE TRADING BOT ALPHA
+
+### Arborescence
+
+```
+alpha_system/
+|-- config.py                              # Configuration centrale (23 parametres)
+|-- main.py                                # Entry point standard
+|-- orchestrator.py                        # Orchestrator principal (pipeline sequentiel)
+|-- ultra_fast_orchestrator.py             # Mode multi-thread (50-150ms)
+|-- websocket_orchestrator.py              # Mode WebSocket push (15-60ms)
+|
+|-- ai/
+|   |-- secure_ai_client.py               # Client IA securise (query, evaluate, fallback)
+|   |-- confidence_manager.py             # Filtre confidence + auto-adjust
+|   |-- profit_optimizer.py               # Calcul taille position
+|   |-- ensemble_engine.py                # Moteur ensemble 3 modeles
+|   |-- ollama_client.py                  # Client Ollama bas niveau
+|   |-- agent_brain.py                    # Logique agent IA
+|
+|-- execution/
+|   |-- execution_engine.py               # Router DRY/LIVE
+|   |-- polymarket_executor_dry.py        # Simulation realiste
+|   |-- polymarket_executor_live.py       # Execution reelle Polymarket (CLOB)
+|   |-- position_manager.py              # Gestion positions (TP/SL/trailing)
+|   |-- position_monitor.py              # Monitor WebSocket temps reel
+|   |-- cost_calculator.py               # Frais, slippage, rentabilite
+|
+|-- market/
+|   |-- polymarket_reader.py             # Lecture API Gamma Polymarket
+|   |-- adaptive_scanner.py              # Controle frequence scan + rate limit
+|
+|-- memory/
+|   |-- database.py                      # SQLite (trades, capital, strategy, audit)
+|
+|-- protection/
+|   |-- error_handler.py                 # Capture exceptions + shutdown auto
+|   |-- kill_switch.py                   # Arret d'urgence drawdown
+|
+|-- risk/
+|   |-- risk_engine_v2.py                # Protection capital complete
+|
+|-- utils/
+|   |-- logger.py                        # Logger structure + rotation
+|
+|-- tests/
+|   |-- test_suite.py                    # 11 tests unitaires
+```
+
+### 3 Modes d'Operation
+
+| Mode | Fichier | Latence | Architecture |
+|------|---------|---------|-------------|
+| Standard | `main.py` | ~60s/cycle | Sequentiel (scan -> AI -> risk -> execute) |
+| Ultra Fast | `ultra_fast_orchestrator.py` | 50-150ms | 2 threads (scanner + decision) + queue |
+| WebSocket | `websocket_orchestrator.py` | 15-60ms | Push-based via WS Polymarket |
+
+---
+
+## 29. CONFIGURATION (config.py)
+
+| Parametre | Valeur | Description |
+|-----------|--------|-------------|
+| `STARTING_CAPITAL` | 1000 | Capital initial |
+| `CONFIDENCE_THRESHOLD` | 0.75 | Seuil minimum IA |
+| `MAX_RISK_PER_TRADE` | 0.02 (2%) | Risque max par trade |
+| `MAX_DRAWDOWN_PCT` | 0.15 (15%) | Drawdown max global |
+| `MAX_TRADE_SIZE` | env (defaut 100) | Taille max position |
+| `MAX_TRADES_PER_DAY` | 20 | Limite journaliere |
+| `MAX_TRADES_PER_HOUR` | 5 | Limite horaire |
+| `MAX_CORRELATED_EXPOSURE` | 0.06 (6%) | Exposition correlee max |
+| `MAX_LOSS_STREAK` | 5 | Pertes consecutives max |
+| `TRAILING_STOP_PCT` | 0.05 (5%) | Trailing stop capital |
+| `MAKER_FEE` | 0.00 | Frais maker |
+| `TAKER_FEE` | 0.02 (2%) | Frais taker |
+| `BASE_SLIPPAGE` | 0.005 | Slippage de base |
+| `MAX_SLIPPAGE` | 0.03 | Slippage max |
+| `SCAN_INTERVAL` | 60s | Intervalle scan |
+| `MIN_SCAN_INTERVAL` | 15s | Intervalle min |
+| `MAX_SCAN_INTERVAL` | 120s | Intervalle max |
+| `MODE` | env `TRADING_MODE` | DRY ou LIVE |
+
+---
+
+## 30. PIPELINE D'EXECUTION
+
+```
+1. Scan Polymarket (100 marches, tri par volume)
+2. FastFilter (volume > 1000, prix 0.05-0.95)
+3. AI Ensemble (3 modeles: deepseek-v3.2, qwen3-next:80b, glm-5)
+4. Confidence Manager (seuil 0.75, auto-adjust tous les 50 trades)
+5. Profit Optimizer (calcul taille position)
+6. Cost Calculator (frais + slippage, validation rentabilite)
+7. Risk Engine V2 (drawdown, loss streak, limites jour/heure, trailing, exposure)
+8. Execution Engine (DRY simulation / LIVE Polymarket CLOB)
+9. Position Manager (TP/SL/trailing automatiques)
+10. Database (SQLite persist) + Audit Log
+```
+
+---
+
+## 31. MODULES — DETAILS TECHNIQUES
+
+### 31.1 SecureAIClient (`ai/secure_ai_client.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `query(prompt, model)` | Prompt libre -> texte brut. Retry 2x, timeout 60s |
+| `evaluate(market, model)` | Evalue un marche -> `{trade, side, confidence}` |
+| `_parse_and_validate(content)` | Parse JSON strict, side YES/NO/buy/sell/hold/skip |
+| `_fallback(market)` | Decision locale si IA indisponible |
+| `get_benchmark()` | Stats: total_calls, success_rate, avg_latency |
+
+**Endpoint** : `https://ollama.com/api/chat`
+**Auth** : `Bearer OLLAMA_API_KEY`
+**Modeles** : `deepseek-v3.2`, `qwen3-next:80b`, `glm-5`
+
+### 31.2 ConfidenceManager (`ai/confidence_manager.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `should_trade(confidence)` | True si confidence >= threshold |
+| `validate(decision)` | Retourne (ok, reason) |
+| `record_outcome(confidence, won)` | Enregistre resultat |
+| `_auto_adjust()` | Ajuste seuil tous les 50 trades (winrate < 45% -> +0.05, > 65% -> -0.02) |
+
+### 31.3 RiskEngineV2 (`risk/risk_engine_v2.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `validate_trade(capital, size, confidence)` | 10 checks: capital, size, risk%, drawdown, loss streak, daily/hourly limits, daily loss, confidence, trailing stop, exposure |
+| `check_drawdown(capital)` | Verifie drawdown global vs MAX_DRAWDOWN_PCT |
+| `check_loss_streak()` | Verifie serie de pertes vs MAX_LOSS_STREAK |
+| `check_trade_limits()` | Verifie limites jour (20) et heure (5) |
+| `add_position(market, size, entry_price)` | Ajoute position au tracking |
+| `remove_position(market)` | Retire position fermee |
+| `record_trade(pnl)` | Enregistre resultat, met a jour streak |
+| `update_capital(capital)` | Met a jour peak capital pour trailing stop |
+
+### 31.4 CostCalculator (`execution/cost_calculator.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `calculate_total_cost(size, price)` | Frais + slippage |
+| `estimate_slippage(size, price)` | Slippage proportionnel a la taille |
+| `adjust_pnl(raw_pnl, size, price)` | PnL net apres frais |
+| `is_trade_worth_it(size, price, confidence)` | Rentabilite attendue |
+| `validate(decision)` | Retourne (ok, reason) |
+
+### 31.5 PositionManager (`execution/position_manager.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `open_position(market_id, token_id, side, entry_price, size, ...)` | Ouvre position avec TP/SL/trailing automatiques |
+| `update_price(market_id, current_price)` | Met a jour prix, verifie exits |
+| `update_all_prices(price_map)` | Update batch |
+| `close_position(market_id, exit_price, reason)` | Ferme position, PnL ajuste, sync risk + DB |
+| `close_all(current_prices, reason)` | Ferme toutes les positions |
+| `get_open_positions()` | Dict positions ouvertes |
+| `get_total_exposure()` | Exposition totale |
+| `get_total_unrealized_pnl()` | PnL non-realise |
+
+**Defaults** : TP +10%, SL -5%, Trailing 5%
+
+### 31.6 PositionMonitor (`execution/position_monitor.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `start()` | Connexion WebSocket avec auto-reconnect |
+| `subscribe_to_open_positions()` | Subscribe auto aux marches des positions |
+| `process_message(data)` | Parse prix -> update_price -> declenchement TP/SL/trailing |
+| `auto_refresh(interval)` | Refresh subscriptions toutes les 10s |
+| `run()` | asyncio.gather(start, auto_refresh, periodic_report) |
+| `stop()` | Arret propre |
+
+**WS URL** : `wss://ws-subscriptions-clob.polymarket.com/ws/market`
+
+### 31.7 PolymarketExecutorLive (`execution/polymarket_executor_live.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `execute(decision)` | Validation -> build order -> submit avec retry -> track -> PositionManager |
+| `close_position(market_id, price, size, side, token_id)` | Ordre inverse automatique |
+| `_validate_decision(decision)` | token_id requis, prix 0-1, size > 0 et <= 1000 |
+| `_submit_with_retry(order, decision)` | 2 retries avec backoff |
+| `_submit_order(order)` | py_clob_client: create_order -> post_order (Polygon chain 137) |
+| `get_status()` | submitted, filled, failed, fill_rate |
+
+**Securite** : Limit orders uniquement, validation complete, retry automatique, audit log
+
+### 31.8 AdaptiveScanner (`market/adaptive_scanner.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `can_scan()` | True si intervalle ecoule et pas rate limited |
+| `record_scan(market_count)` | Adapte intervalle (ralentit si vide) |
+| `get_interval()` | Intervalle actuel en secondes |
+| `report_rate_limit(wait_seconds)` | Signale rate limit, augmente intervalle |
+| `clear_rate_limit()` | Efface rate limit, restaure intervalle |
+
+### 31.9 DatabaseManager (`memory/database.py`)
+
+**Tables SQLite** :
+
+| Table | Colonnes |
+|-------|----------|
+| `trades` | id, timestamp, market, side, price, size, pnl, confidence, model, source, status, fees, slippage |
+| `capital_history` | id, timestamp, capital, pnl, drawdown_pct, trade_count |
+| `strategy_versions` | id, timestamp, version, confidence_threshold, max_risk, notes |
+| `system_state` | id(=1), capital, starting_capital, total_pnl, total_trades, wins, losses, updated_at |
+| `audit_log` | id, timestamp, action, detail |
+
+**Migration auto** : Colonnes manquantes ajoutees automatiquement (fees, slippage, model, source, status).
+
+### 31.10 ErrorHandler (`protection/error_handler.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `handle(error, context)` | Log + audit + compteur |
+| `wrap(func)` | Decorateur protection exceptions |
+| `safe_execute(func, *args, default, context)` | Execute avec fallback |
+| `is_system_healthy()` | False si shutdown demande ou trop d'erreurs critiques |
+
+**Shutdown auto** : Apres 10 erreurs critiques (ConnectionError, TimeoutError, MemoryError, SystemError).
+
+### 31.11 Logger (`utils/logger.py`)
+
+| Methode | Description |
+|---------|-------------|
+| `setup_logger(name)` | Singleton, RotatingFileHandler (5MB/5 backups main, 2MB/3 backups errors) |
+| `info/debug/warning/error/critical(msg)` | Niveaux standard |
+| `trade(market, side, size, pnl, confidence)` | Log structure trade |
+| `risk(msg)` | Log WARNING avec prefix RISK |
+| `audit(action, detail)` | Log INFO avec prefix AUDIT |
+
+---
+
+## 32. POLYMARKET API
+
+### Lecture marches (HTTP)
+
+**Endpoint** : `https://gamma-api.polymarket.com/markets`
+**Params** : `closed=false`, `active=true`, `limit=100`
+
+**Attention** : `outcomePrices` et `clobTokenIds` sont des **strings JSON** :
+```python
+# CORRECT
+prices = json.loads(m.get("outcomePrices", "[]"))
+# INCORRECT
+prices = m.get("outcomePrices")  # retourne une string, pas une liste
+```
+
+### Execution LIVE (CLOB)
+
+**Endpoint** : `https://clob.polymarket.com`
+**Chain** : Polygon (chain_id=137)
+**Library** : `py-clob-client`
+**Auth** : `POLYMARKET_PRIVATE_KEY` (cle privee wallet)
+
+### WebSocket
+
+**URL** : `wss://ws-subscriptions-clob.polymarket.com/ws/market`
+**Format** : JSON avec `token_id`, `price`, `volume`
+
+---
+
+## 33. OLLAMA CLOUD API
+
+**Endpoint** : `https://ollama.com/api/chat`
+**Auth** : `Authorization: Bearer OLLAMA_API_KEY`
+**Modeles disponibles** : `deepseek-v3.2`, `qwen3-next:80b`, `glm-5`
+**Format reponse** : `data["message"]["content"]` (PAS format OpenAI)
+**Timeout** : 60s
+
+---
+
+## 34. SECURITE ET PROTECTION
+
+| Protection | Mecanisme |
+|-----------|-----------|
+| Kill Switch | Arret si drawdown > 15% |
+| Loss Streak | Bloque apres 5 pertes consecutives |
+| Daily Limit | Max 20 trades/jour |
+| Hourly Limit | Max 5 trades/heure |
+| Trailing Stop | Bloque si capital chute > 5% depuis peak |
+| Exposure Limit | Max 6% exposition correlee |
+| Error Shutdown | Auto-shutdown apres 10 erreurs critiques |
+| Order Validation | token_id requis, prix 0-1, size <= 1000 |
+| Limit Orders Only | Pas de market orders en LIVE |
+| Retry avec Backoff | 2 retries avant echec |
+| DB Backup | Automatique toutes les 10 min |
+
+---
+
+## 35. VARIABLES D'ENVIRONNEMENT (.env)
+
+| Variable | Description |
+|----------|-------------|
+| `TRADING_MODE` | `DRY` (simulation) ou `LIVE` (reel) |
+| `OLLAMA_API_KEY` | Cle API Ollama Cloud |
+| `POLYMARKET_PRIVATE_KEY` | Cle privee wallet Polygon |
+| `MAX_TRADE_SIZE` | Taille max position (defaut 100) |
+
+---
+
+## 36. TESTS
+
+### Test Suite Alpha System (11/11)
+
+| Test | Module |
+|------|--------|
+| `test_config` | Config values |
+| `test_database` | SQLite CRUD + state |
+| `test_risk_engine` | Validate trade + check_drawdown + loss_streak + positions |
+| `test_confidence_manager` | Validate + reject + None |
+| `test_cost_calculator` | Validate + total_cost + adjust_pnl |
+| `test_error_handler` | safe_execute success + error + health |
+| `test_kill_switch` | Drawdown trigger |
+| `test_profit_optimizer` | Size calculation + limits |
+| `test_adaptive_scanner` | Interval + rate limit + clear |
+| `test_logger` | setup_logger + trade + risk + audit |
+| `test_position_manager` | Open + TP trigger + SL trigger + close + status |
+
+### Integration Test
+
+5 cycles complets valides :
+- 100 marches scannes par cycle
+- 3 modeles IA 100% success
+- 0 erreurs
+- Capital: 1000.10 (profit positif)
+- Winrate: 55.6%
+
+---
+
+## 37. LANCEMENT
+
+```bash
+# Mode standard (sequentiel, ~60s/cycle)
+python alpha_system/main.py
+
+# Mode ultra fast (multi-thread, 50-150ms)
+python -m alpha_system.ultra_fast_orchestrator
+
+# Mode WebSocket (push-based, 15-60ms)
+python -m alpha_system.websocket_orchestrator
+
+# Position monitor standalone
+python -m alpha_system.execution.position_monitor
+
+# Tests
+python alpha_system/tests/test_suite.py
+```
+
+---
+
+## 38. WORKFLOW COMPLET (DRY -> LIVE)
+
+### Phase 1 : DRY RUN (actuel)
+```
+TRADING_MODE=DRY
+```
+- Simulation realiste avec PnL aleatoire base sur confidence
+- Validation de tous les modules
+- Accumulation de donnees dans SQLite
+
+### Phase 2 : Preparation LIVE
+1. Installer `pip install py-clob-client`
+2. Configurer `POLYMARKET_PRIVATE_KEY` dans `.env`
+3. Verifier capital wallet Polygon
+4. Lancer quelques cycles en DRY pour confirmer stabilite
+
+### Phase 3 : LIVE
+```
+TRADING_MODE=LIVE
+```
+- Ordres reels signes sur Polygon (chain 137)
+- Limit orders uniquement
+- PositionManager avec TP/SL/trailing automatiques
+- PositionMonitor WebSocket pour suivi temps reel
+- Audit complet de chaque ordre
+
+---
+
+*Documentation Trading Bot Alpha v2.0 — Derniere mise a jour: 2026-02-15*
 *170 tests unitaires + 59 stress-test + 7 property-based = TOUS PASS.*
