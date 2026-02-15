@@ -7,3 +7,10 @@ logs/
 *.log
 .vscode/
 .idea/
+.hypothesis/
+nul
+alpha_system/data/*.db
+alpha_system/data/logs/
+alpha_system/data/backups/
+alpha_system/data/*.json
+alpha_system/data/*.jsonl
