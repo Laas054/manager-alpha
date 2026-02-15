@@ -11,6 +11,7 @@ from alpha_system.ai.profit_optimizer import ProfitOptimizer
 from alpha_system.execution.execution_engine import ExecutionEngine
 from alpha_system.execution.cost_calculator import CostCalculator
 from alpha_system.execution.position_manager import PositionManager
+from alpha_system.execution.position_monitor import PositionMonitor
 from alpha_system.risk.risk_engine_v2 import RiskEngineV2
 
 
@@ -58,6 +59,13 @@ class AlphaOrchestrator:
             database=self.db,
             cost_calc=self.cost_calc,
             logger=self.log,
+        )
+
+        # Position Monitor (WebSocket temps réel)
+        self.monitor = PositionMonitor(
+            position_manager=self.positions,
+            logger=self.log,
+            database=self.db,
         )
 
         # State
@@ -283,6 +291,10 @@ class AlphaOrchestrator:
         pos_status = self.positions.get_status()
         self.log.info(f"  Positions: {pos_status['open_count']} open, {pos_status['closed_count']} closed")
         self.log.info(f"  Exposure: {pos_status['total_exposure']} | Unrealized PnL: {pos_status['unrealized_pnl']}")
+
+        # Position Monitor status
+        mon_status = self.monitor.get_status()
+        self.log.info(f"  Monitor: connected:{mon_status['connected']} updates:{mon_status['price_updates']} exits:{mon_status['exits_triggered']}")
 
         # Scanner status
         scan_status = self.scanner.get_status()
